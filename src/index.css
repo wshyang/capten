@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --sand-light: #fbf5e8;
+    --sand-mid: #f3e5c8;
+    --sand-dark: #d9be8c;
+    --parchment-border: #8b5a2b;
+    --ink-dark: #2a1810;
+    --ink-sepia: #4a2e1b;
+    --nautical-blue: #1d4ed8;
+    --pirate-red: #dc2626;
+    --gold-accent: #f59e0b;
+  }
+}
+
+body {
+  background-color: #1a120c;
+  color: #2c1a0e;
+  font-family: 'Cinzel', 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+  -webkit-user-select: none;
+  user-select: none;
+  background-image: 
+    radial-gradient(circle at 50% 10%, rgba(245, 230, 200, 0.15) 0%, transparent 70%),
+    radial-gradient(circle at 10% 90%, rgba(139, 90, 43, 0.25) 0%, transparent 60%),
+    radial-gradient(circle at 90% 90%, rgba(29, 78, 216, 0.15) 0%, transparent 60%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* Custom hand-drawn parchment paper background */
+.parchment-bg {
+  background-color: #fbf5e8;
+  background-image: 
+    radial-gradient(#e5cca0 1px, transparent 1px),
+    radial-gradient(#f0e0be 1.5px, transparent 1.5px);
+  background-size: 24px 24px, 48px 48px;
+  background-position: 0 0, 12px 12px;
+}
+
+/* Aged Deckle Parchment Card */
+.parchment-card {
+  background-color: #fdf8eb;
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(243, 229, 200, 0.8) 100%);
+  border: 2px solid #8b5e34;
+  box-shadow: 
+    3px 4px 12px rgba(44, 24, 16, 0.22),
+    inset 0 0 16px rgba(180, 130, 70, 0.15);
+  position: relative;
+}
+
+.parchment-card::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 1px dashed rgba(139, 94, 52, 0.45);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Hand-drawn Inked Court */
+.hand-drawn-court {
+  background-color: #f6eedb;
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(235, 215, 175, 0.8) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(220, 195, 150, 0.8) 0%, transparent 50%),
+    radial-gradient(#d9be8c 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 18px 18px;
+  border: 4px solid #5c3a1e;
+  box-shadow: 
+    0 12px 32px rgba(28, 16, 8, 0.35),
+    inset 0 0 40px rgba(139, 90, 43, 0.2);
+}
+
+/* Sketched Dashed Vectors */
+@keyframes dash-slow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes float-gentle {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-float {
+  animation: float-gentle 3s ease-in-out infinite;
+}
+
+/* Custom antique scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #ecd9b5;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: #a47148;
+  border-radius: 4px;
+  border: 1px solid #704423;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8b5a2b;
+}
+
+/* Hand-drawn button style */
+.btn-hand-drawn {
+  background: linear-gradient(180deg, #fefae0 0%, #faedcd 100%);
+  border: 2px solid #8b5a2b;
+  box-shadow: 2px 3px 0px #5c3a1e;
+  transition: all 0.15s ease;
+}
+
+.btn-hand-drawn:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #fefae0 100%);
+  transform: translateY(-1px);
+  box-shadow: 2px 4px 0px #5c3a1e;
+}
+
+.btn-hand-drawn:active {
+  transform: translateY(2px);
+  box-shadow: 0px 1px 0px #5c3a1e;
+}
+
+/* Wax Seal Badge */
+.wax-seal {
+  background: radial-gradient(circle at 35% 35%, #e63946 0%, #9e2a2b 75%, #540b0e 100%);
+  border: 2px solid #540b0e;
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.4), inset 0 0 4px rgba(255, 255, 255, 0.3);
+}
+
+.wax-seal-gold {
+  background: radial-gradient(circle at 35% 35%, #ffd166 0%, #d4a373 75%, #8b5a2b 100%);
+  border: 2px solid #78350f;
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.3), inset 0 0 4px rgba(255, 255, 255, 0.5);
+}
