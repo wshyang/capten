@@ -1,4 +1,4 @@
-import type { GameState, Cell, Posture, ThrowType } from '../types';
+import type { GameState, Cell, Posture, ThrowType, Side } from '../types';
 import { SeededRNG } from '../rng';
 import { selectAIPosture } from './posture';
 import { determinizePlayerHand } from './ismcts';
@@ -43,8 +43,10 @@ interface MCTSNode {
 function applyActionToSimState(
   baseState: GameState,
   action: MCTSCandidateAction,
-  rng: SeededRNG
+  rng: SeededRNG,
+  actingSide: Side = 'AI'
 ): GameState {
+  const enemySide: Side = actingSide === 'AI' ? 'PLAYER' : 'AI';
   const simState: GameState = {
     ...baseState,
     score: { ...baseState.score },
@@ -69,7 +71,7 @@ function applyActionToSimState(
 
   // 2. Then apply throw to the recipient at its new position (1-step catch/pivot rule)
   if (action.throwTargetPieceId) {
-    const carrier = simState.pieces.find(p => p.side === 'AI' && p.hasBall);
+    const carrier = simState.pieces.find(p => p.side === actingSide && p.hasBall);
     const targetPiece = simState.pieces.find(p => p.id === action.throwTargetPieceId);
     
     // Check if target piece moved <= 1.42 cells distance
@@ -81,7 +83,7 @@ function applyActionToSimState(
     if (carrier && targetPiece && !targetMovedTooFar) {
       const controlMap = computeControlMap(simState.pieces, simState.temporaryState);
       const throwType: ThrowType = targetPiece.isCaptain ? 'HIGH_LOB' : 'FLAT';
-      const isRestart = !!simState.isRestartPhase?.AI;
+      const isRestart = !!simState.isRestartPhase?.[actingSide];
       const res = resolveThrow(carrier, targetPiece, simState.pieces, controlMap, rng, simState.temporaryState, undefined, targetPiece.cell, isRestart, throwType);
 
       carrier.energy = res.postThrowEnergy;
@@ -102,28 +104,28 @@ function applyActionToSimState(
       } else {
         targetPiece.hasBall = true;
         if (res.scored) {
-          simState.score.AI += 1;
-          if (simState.score.AI >= simState.config.board.pointsToWin) {
+          simState.score[actingSide] += 1;
+          if (simState.score[actingSide] >= simState.config.board.pointsToWin) {
             simState.matchResult.isOver = true;
-            simState.matchResult.winner = 'AI';
+            simState.matchResult.winner = actingSide;
           }
         }
       }
     }
   } else {
-    // If AI ball carrier holds ball without passing, holding foul turnover occurs
-    const carrier = simState.pieces.find(p => p.side === 'AI' && p.hasBall);
+    // If ball carrier holds ball without passing, holding foul turnover occurs
+    const carrier = simState.pieces.find(p => p.side === actingSide && p.hasBall);
     if (carrier && simState.config.board.holdingFoulEnforced) {
       carrier.hasBall = false;
-      const playerReceiver = simState.pieces.find(p => p.side === 'PLAYER' && !p.isCaptain);
-      if (playerReceiver) playerReceiver.hasBall = true;
+      const enemyReceiver = simState.pieces.find(p => p.side === enemySide && !p.isCaptain);
+      if (enemyReceiver) enemyReceiver.hasBall = true;
     }
   }
 
   return simState;
 }
 
-export function runSeededMCTS(state: GameState, rng: SeededRNG): AIPlannedTurnResult {
+export function runSeededMCTS(state: GameState, rng: SeededRNG, actingSide: Side = 'AI'): AIPlannedTurnResult {
   const startTime = Date.now();
   const config = state.config.mcts;
   const iterations = config.iterations || 300;
@@ -131,7 +133,7 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG): AIPlannedTurnRe
 
   const posture = selectAIPosture(state);
   const stage0Card = evaluateStage0Cards(state);
-  const allCandidates = generateJointCandidateActions(state, posture);
+  const allCandidates = generateJointCandidateActions(state, posture, actingSide);
 
   const rootNode: MCTSNode = {
     parent: null,
@@ -152,7 +154,7 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG): AIPlannedTurnRe
 
     while (node.untriedActions.length === 0 && node.children.length > 0) {
       node = selectBestChild(node, explorationC);
-      rolloutState = applyActionToSimState(rolloutState, node.action, rng);
+      rolloutState = applyActionToSimState(rolloutState, node.action, rng, actingSide);
     }
 
     if (node.untriedActions.length > 0) {
@@ -168,10 +170,10 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG): AIPlannedTurnRe
       };
       node.children.push(childNode);
       node = childNode;
-      rolloutState = applyActionToSimState(rolloutState, action, rng);
+      rolloutState = applyActionToSimState(rolloutState, action, rng, actingSide);
     }
 
-    const score = simulateCascadeRollout(rolloutState, config.rolloutDepth, rng);
+    const score = simulateCascadeRollout(rolloutState, config.rolloutDepth, rng, actingSide);
     nodesEvaluated++;
 
     let curr: MCTSNode | null = node;
@@ -201,11 +203,12 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG): AIPlannedTurnRe
 
   let throwAction: { throwerId: string; targetPieceId: string; targetCell: Cell; throwType?: ThrowType } | undefined;
   if (bestAction.throwTargetPieceId) {
-    const aiPieces = state.pieces.filter(p => p.side === 'AI');
-    const carrier = aiPieces.find(p => p.hasBall);
-    const targetPiece = aiPieces.find(p => p.id === bestAction.throwTargetPieceId);
+    const sidePieces = state.pieces.filter(p => p.side === actingSide);
+    const carrier = sidePieces.find(p => p.hasBall);
+    const targetPiece = sidePieces.find(p => p.id === bestAction.throwTargetPieceId);
     const staged = bestAction.moves.find(m => m.pieceId === bestAction.throwTargetPieceId);
-    const effectiveCell = staged ? staged.destCell : (targetPiece ? targetPiece.cell : { col: 5, row: 0 });
+    const defaultCell = actingSide === 'AI' ? BOARD_CONFIG.aiScoringCell : BOARD_CONFIG.playerScoringCell;
+    const effectiveCell = staged ? staged.destCell : (targetPiece ? targetPiece.cell : defaultCell);
 
     if (carrier && targetPiece) {
       throwAction = {
@@ -220,13 +223,14 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG): AIPlannedTurnRe
   const stage2Card = evaluateStage2Cards(state);
   const durationMs = Date.now() - startTime;
 
+  const fmtId = (id: string) => id.replace('ai_', 'A.').replace('p_', 'P.');
   let bestActionDescription = 'Hold Position & Anchor';
   if (throwAction && bestAction.moves.length > 0) {
-    bestActionDescription = `Cut (${bestAction.moves.map(m => m.pieceId.replace('ai_', 'A.')).join(', ')}) & Pass to ${throwAction.targetPieceId.replace('ai_', 'A.')}`;
+    bestActionDescription = `Cut (${bestAction.moves.map(m => fmtId(m.pieceId)).join(', ')}) & Pass to ${fmtId(throwAction.targetPieceId)}`;
   } else if (throwAction) {
-    bestActionDescription = `Direct Pass to ${throwAction.targetPieceId.replace('ai_', 'A.')}`;
+    bestActionDescription = `Direct Pass to ${fmtId(throwAction.targetPieceId)}`;
   } else if (bestAction.moves.length > 0) {
-    bestActionDescription = `Formation Cut: ${bestAction.moves.map(m => m.pieceId.replace('ai_', 'A.')).join(', ')}`;
+    bestActionDescription = `Formation Cut: ${bestAction.moves.map(m => fmtId(m.pieceId)).join(', ')}`;
   }
 
   return {
@@ -274,29 +278,34 @@ function selectBestChild(node: MCTSNode, c: number): MCTSNode {
  */
 export function generateJointCandidateActions(
   state: GameState,
-  _posture: Posture = 'BALANCED'
+  _posture: Posture = 'BALANCED',
+  actingSide: Side = 'AI'
 ): MCTSCandidateAction[] {
-  const aiPieces = state.pieces.filter(p => p.side === 'AI');
-  const carrier = aiPieces.find(p => p.hasBall);
-  const captain = aiPieces.find(p => p.isCaptain);
-  const bouncer = aiPieces.find(p => p.isBlocker || p.id === 'ai_blocker');
-  // Outfield runners are active field pieces (ai_1 through ai_5) moving and cutting downfield
-  const outfieldRunners = aiPieces.filter(
-    p => !p.isCaptain && !p.isBlocker && p.id !== 'ai_blocker' && (!carrier || p.id !== carrier.id) && p.energy >= 1.0
+  const enemySide: Side = actingSide === 'AI' ? 'PLAYER' : 'AI';
+  const scoringCell = actingSide === 'AI' ? BOARD_CONFIG.aiScoringCell : BOARD_CONFIG.playerScoringCell;
+  const enemyScoringCell = actingSide === 'AI' ? BOARD_CONFIG.playerScoringCell : BOARD_CONFIG.aiScoringCell;
+
+  const sidePieces = state.pieces.filter(p => p.side === actingSide);
+  const carrier = sidePieces.find(p => p.hasBall);
+  const captain = sidePieces.find(p => p.isCaptain);
+  const bouncer = sidePieces.find(p => p.isBlocker);
+  // Outfield runners: non-captain, non-blocker pieces with energy
+  const outfieldRunners = sidePieces.filter(
+    p => !p.isCaptain && !p.isBlocker && (!carrier || p.id !== carrier.id) && p.energy >= 1.0
   );
   // All mobile pieces (excluding carrier and captain)
-  const mobilePieces = aiPieces.filter(p => !p.isCaptain && (!carrier || p.id !== carrier.id) && p.energy >= 1.0);
+  const mobilePieces = sidePieces.filter(p => !p.isCaptain && (!carrier || p.id !== carrier.id) && p.energy >= 1.0);
 
   const candidates: MCTSCandidateAction[] = [];
-  const playerCarrier = state.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
-  const playerCaptain = state.pieces.find(p => p.isCaptain && p.side === 'PLAYER') || { cell: BOARD_CONFIG.playerScoringCell };
-  const playerPassRay = playerCarrier ? getThrowPathCells(playerCarrier.cell, playerCaptain.cell) : [];
+  const enemyCarrier = state.pieces.find(p => p.side === enemySide && p.hasBall);
+  const enemyCaptain = state.pieces.find(p => p.isCaptain && p.side === enemySide) || { cell: enemyScoringCell };
+  const enemyPassRay = enemyCarrier ? getThrowPathCells(enemyCarrier.cell, enemyCaptain.cell) : [];
 
   // Helper to compute Euclidean distance to the player's passing ray
   const getDistToPassingRay = (cell: Cell): number => {
-    if (playerPassRay.length === 0) return 99;
+    if (enemyPassRay.length === 0) return 99;
     let minD = Infinity;
-    for (const r of playerPassRay) {
+    for (const r of enemyPassRay) {
       const d = Math.hypot(cell.col - r.col, cell.row - r.row);
       if (d < minD) minD = d;
     }
@@ -308,23 +317,23 @@ export function generateJointCandidateActions(
   for (const p of mobilePieces) {
     const reachable = getReachableCells(p, state.pieces, state.temporaryState, 11, 11, false);
     if (carrier) {
-      // Attacking drive: prioritize breaking formation and cutting forward into the shooting sweet spot (rows 2-4)
+      // Attacking drive: prioritize cutting toward scoring cell
       reachable.sort((a, b) => {
-        const distA = Math.hypot(a.cell.col - 5, a.cell.row - 0);
-        const distB = Math.hypot(b.cell.col - 5, b.cell.row - 0);
+        const distA = Math.hypot(a.cell.col - scoringCell.col, a.cell.row - scoringCell.row);
+        const distB = Math.hypot(b.cell.col - scoringCell.col, b.cell.row - scoringCell.row);
 
         const getPocketScore = (cell: Cell, dist: number): number => {
-          const r = cell.row;
-          if (r === 2 || r === 3) return 50.0 - dist * 1.5; // Peak assist shooting pocket (~3.0 - 4.5 cells from Captain)
-          if (r === 1 || r === 4) return 38.0 - dist * 1.5; // Attacking half / perimeter
-          if (r === 0) return 28.0 - dist * 1.5; // Baseline flank sneak option
-          if (r === 5) return 15.0 - dist; // Midfield
+          const distToScoring = Math.abs(cell.row - scoringCell.row);
+          if (distToScoring === 2 || distToScoring === 3) return 50.0 - dist * 1.5;
+          if (distToScoring === 1 || distToScoring === 4) return 38.0 - dist * 1.5;
+          if (distToScoring === 0) return 28.0 - dist * 1.5;
+          if (distToScoring === 5) return 15.0 - dist;
           return -dist;
         };
 
         return getPocketScore(b.cell, distB) - getPocketScore(a.cell, distA);
       });
-    } else if (playerCarrier) {
+    } else if (enemyCarrier) {
       // DEFENSIVE AWARENESS: Prioritize cells that step onto the passing ray to block player scoring passes!
       reachable.sort((a, b) => {
         const rayDistA = getDistToPassingRay(a.cell);
@@ -332,8 +341,8 @@ export function generateJointCandidateActions(
         if (Math.abs(rayDistA - rayDistB) > 0.3) {
           return rayDistA - rayDistB;
         }
-        const distA = Math.hypot(a.cell.col - playerCarrier.cell.col, a.cell.row - playerCarrier.cell.row);
-        const distB = Math.hypot(b.cell.col - playerCarrier.cell.col, b.cell.row - playerCarrier.cell.row);
+        const distA = Math.hypot(a.cell.col - enemyCarrier.cell.col, a.cell.row - enemyCarrier.cell.row);
+        const distB = Math.hypot(b.cell.col - enemyCarrier.cell.col, b.cell.row - enemyCarrier.cell.row);
         return distA - distB;
       });
     }
@@ -346,7 +355,7 @@ export function generateJointCandidateActions(
   if (carrier) {
     // 1.1 Priority: Direct throw to Captain (Captain NEVER moves, always stationary!)
     // Prohibited during baseline restart phase: mandatory pass to court player required first
-    if (captain && !captain.hasBall && !state.isRestartPhase?.AI) {
+    if (captain && !captain.hasBall && !state.isRestartPhase?.[actingSide]) {
       // With companion runners surging forward into enemy territory
       const otherRunners = [...outfieldRunners];
       if (otherRunners.length >= 2) {
@@ -373,7 +382,11 @@ export function generateJointCandidateActions(
     }
 
     // Sort outfield runners by forward advancement (closer to row 0 / enemy territory first)
-    const sortedRunners = [...outfieldRunners].sort((a, b) => a.cell.row - b.cell.row);
+    const sortedRunners = [...outfieldRunners].sort((a, b) => {
+      const distA = Math.hypot(a.cell.col - scoringCell.col, a.cell.row - scoringCell.row);
+      const distB = Math.hypot(b.cell.col - scoringCell.col, b.cell.row - scoringCell.row);
+      return distA - distB;
+    });
 
     // 1.2 Joint Forward Cuts & Catch: Receiver cuts 1 step to catch while other outfield teammates sprint forward into enemy territory!
     for (const teammate of sortedRunners) {
@@ -453,7 +466,9 @@ export function generateJointCandidateActions(
           }
         }
         // Only generate pure stationary pass if not stuck in deep initial formation
-        if (carrier.cell.row <= 4 || teammate.cell.row <= 4) {
+        const carrierAdvanced = Math.hypot(carrier.cell.col - scoringCell.col, carrier.cell.row - scoringCell.row) <= 5;
+        const teammateAdvanced = Math.hypot(teammate.cell.col - scoringCell.col, teammate.cell.row - scoringCell.row) <= 5;
+        if (carrierAdvanced || teammateAdvanced) {
           candidates.push({
             moves: [],
             throwTargetPieceId: teammate.id,

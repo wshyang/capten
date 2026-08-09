@@ -1722,6 +1722,149 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    // AI plays for PLAYER side (for AI vs AI testing)
+    case 'RUN_AI_TURN_FOR_PLAYER': {
+      if (state.phase !== 'PLAYER_PLAN') return state;
+
+      // Run MCTS for PLAYER side
+      const mctsResult = runSeededMCTS(state, rng, 'PLAYER');
+
+      // Execute planned moves immediately
+      let workingPieces = state.pieces.map(p => ({ ...p, cell: { ...p.cell }, buffs: [...p.buffs] }));
+      const tempState: any = { ...state.temporaryState };
+      const newEvents: GameEvent[] = [];
+      let updatedScore = { ...state.score };
+      const updatedMomentum = { ...state.momentum };
+      let nextBallHolderId: string = state.ballHolderId || 'p_1';
+
+      // Apply moves
+      for (const m of mctsResult.moves) {
+        const p = workingPieces.find(x => x.id === m.pieceId);
+        if (p) {
+          const fromCell = { ...p.cell };
+          p.cell = { ...m.destCell };
+          p.energy = Math.max(0, p.energy - m.cost);
+          p.movedLastTurn = true;
+          newEvents.push({
+            id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+            timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+            type: 'PIECE_MOVED',
+            details: { pieceId: p.id, fromCell, toCell: m.destCell, cost: m.cost },
+          });
+        }
+      }
+
+      // Apply throw
+      if (mctsResult.throwAction) {
+        const carrier = workingPieces.find(p => p.id === mctsResult.throwAction!.throwerId);
+        const targetPiece = workingPieces.find(p => p.id === mctsResult.throwAction!.targetPieceId);
+
+        if (carrier && targetPiece) {
+          const controlMap = computeControlMap(workingPieces, tempState);
+          const throwType = targetPiece.isCaptain ? 'HIGH_LOB' as const : 'FLAT' as const;
+          const res = resolveThrow(carrier, targetPiece, workingPieces, controlMap, rng, tempState, mctsResult.moves, mctsResult.throwAction.targetCell, false, throwType);
+
+          carrier.energy = res.postThrowEnergy;
+          newEvents.push({
+            id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+            timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+            type: 'PASS_ATTEMPTED',
+            details: { throwerId: carrier.id, targetPieceId: targetPiece.id, throwType, loft: res.loft, isClean: res.isClean },
+          });
+
+          if (res.intercepted) {
+            const interceptor = workingPieces.find(p => p.id === res.interceptedByPieceId);
+            if (interceptor) {
+              interceptor.hasBall = true;
+              nextBallHolderId = interceptor.id;
+              newEvents.push({
+                id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+                timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+                type: 'PASS_INTERCEPTED',
+                details: { interceptedAtCell: res.interceptedAtCell, interceptedByPieceId: res.interceptedByPieceId },
+              });
+            }
+          } else if (res.catchSuccess) {
+            targetPiece.hasBall = true;
+            carrier.hasBall = false;
+            nextBallHolderId = targetPiece.id;
+            newEvents.push({
+              id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+              timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+              type: 'PASS_COMPLETED',
+              details: { receiverId: targetPiece.id, loft: res.loft, catchRoll: res.catchRoll },
+            });
+            if (res.scored) {
+              updatedScore.PLAYER += 1;
+              newEvents.push({
+                id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+                timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+                type: 'SCORE_GOAL',
+                details: { scorerPieceId: targetPiece.id, playerScore: updatedScore.PLAYER, aiScore: updatedScore.AI },
+              });
+            }
+          }
+        }
+      } else {
+        // Holding foul: no throw = turnover
+        const playerCarrier = workingPieces.find(p => p.side === 'PLAYER' && p.hasBall);
+        if (playerCarrier && state.config.board.holdingFoulEnforced) {
+          nextBallHolderId = 'ai_1';
+        }
+      }
+
+      // Sync ball holder
+      workingPieces = workingPieces.map(p => ({ ...p, hasBall: p.id === nextBallHolderId }));
+
+      // AI pieces: energy regen + rest streak (same as END_PLAYER_TURN does for AI)
+      workingPieces = workingPieces.map(p => {
+        if (p.side === 'AI') {
+          const nextBuffs = p.buffs.map(b => ({ ...b, durationTurns: b.durationTurns - 1 })).filter(b => b.durationTurns > 0);
+          let streak = p.restStreak;
+          let regenAmount = 1.0;
+          if (p.movedLastTurn) {
+            streak = 0;
+            regenAmount = state.config.energy.baseRegen;
+          } else {
+            streak += 1;
+            regenAmount = state.config.energy.compoundingRegenBase + streak;
+          }
+          const newEnergy = Math.min(state.config.energy.maxEnergy, p.energy + regenAmount);
+          return { ...p, buffs: nextBuffs, restStreak: streak, energy: newEnergy, movedLastTurn: false };
+        }
+        return p;
+      });
+
+      // AI card draw + hand limit
+      const aiDeck = [...state.decks.AI];
+      let aiHand = [...state.hands.AI];
+      if (aiDeck.length > 0) { aiHand.push(aiDeck.shift()!); }
+      if (aiHand.length > state.config.momentum.handLimit) {
+        const discard = getAIDiscardChoice(aiHand, state.momentum.AI);
+        aiHand = aiHand.filter(c => c.id !== discard.id);
+      }
+
+      // AI momentum regen
+      const aiMom = Math.min(state.config.momentum.maxMomentum, state.momentum.AI + state.config.momentum.regenPerTurn);
+
+      return {
+        ...state,
+        phase: 'AI_TURN',
+        toAct: 'AI',
+        pieces: workingPieces,
+        score: updatedScore,
+        ballHolderId: nextBallHolderId,
+        momentum: { ...updatedMomentum, AI: aiMom },
+        temporaryState: tempState,
+        decks: { ...state.decks, AI: aiDeck },
+        hands: { ...state.hands, AI: aiHand },
+        eventLog: [...state.eventLog, ...newEvents],
+        plannedMoves: [],
+        plannedThrow: null,
+        plannedCards: [],
+      };
+    }
+
     // Resolves the AI's planned moves, card plays and throw upon player clicking "Start Turn"
     case 'START_PLAYER_TURN': {
       if (state.phase !== 'AI_PLANNED_REVIEW' && state.phase !== 'AI_TURN') return state;

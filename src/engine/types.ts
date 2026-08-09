@@ -446,6 +446,7 @@ export type GameAction =
   | { type: 'START_PLAYER_TURN' }
   | { type: 'END_PLAYER_TURN' }
   | { type: 'RUN_AI_TURN' }
+  | { type: 'RUN_AI_TURN_FOR_PLAYER' }
   | { type: 'TIMER_TICK'; secondsElapsed: number }
   | { type: 'CONCEDE_OR_END' }
   | { type: 'REPLAY_MATCH'; seed: number; events: GameEvent[] };
