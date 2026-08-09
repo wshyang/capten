@@ -8,9 +8,10 @@ import { isInAttackingHalf } from './sideHelpers';
 
 /**
  * Patch v3.1 §F: Goal-Seeking Rule-Cascade Rollout Policy
- * Fast heuristic simulation policy for ultra-deep MCTS rollouts.
- * Now side-agnostic: all logic is expressed as ourSide vs enemySide.
+ * Denoised leaf — deterministic geometry + soft stagnation, sampled throw with variance reduction.
+ * Side-agnostic, quiet geometry, sharp throws.
  */
+
 export function simulateCascadeRollout(
   state: GameState,
   depth: number,
@@ -19,8 +20,6 @@ export function simulateCascadeRollout(
 ): number {
   const simState = cloneStateForSimulation(state);
 
-  // Side-agnostic derived constants — computed once per rollout, not per step for id lookup,
-  // but per-step we re-derive ourPieces etc because pieces move.
   const ourSide: Side = actingSide;
   const enemySide: Side = actingSide === 'AI' ? 'PLAYER' : 'AI';
   const ourScoringCell = actingSide === 'AI' ? BOARD_CONFIG.aiScoringCell : BOARD_CONFIG.playerScoringCell;
@@ -29,7 +28,6 @@ export function simulateCascadeRollout(
   for (let step = 0; step < depth; step++) {
     if (simState.matchResult.isOver) break;
 
-    // Re-derive side partitions each step (pieces move)
     const ourPieces = simState.pieces.filter(p => p.side === ourSide);
     const enemyPieces = simState.pieces.filter(p => p.side === enemySide);
     const ourCarrier = ourPieces.find(p => p.hasBall);
@@ -39,34 +37,32 @@ export function simulateCascadeRollout(
     const controlMap = computeControlMap(simState.pieces, simState.temporaryState);
 
     if (ourCarrier) {
-      // ===== OUR OFFENSE: mobile teammates cut forward into shooting pocket near our scoring cell =====
+      // ===== OUR OFFENSE: deterministic cuts toward our scoring cell =====
       const mobileTeammates = ourPieces.filter(p => p.id !== ourCarrier.id && !p.isCaptain && !p.isBlocker && p.energy >= 1.0);
       for (const teammate of mobileTeammates) {
         const dCol = Math.sign(5 - teammate.cell.col);
-        // Step forward toward our scoring cell. AI moves row -1 (toward 0), PLAYER moves row +1 (toward 10).
-        // Use distance to our scoring cell to determine if far from pocket.
         const distToGoal = Math.abs(teammate.cell.row - ourScoringCell.row);
         const attackDir = ourSide === 'AI' ? -1 : 1;
-        // If far (>2 away from goal), step toward goal; if already in pocket (row 0-3 for AI / 7-10 for PLAYER), occasionally sneak one more
+        // Deterministic: always step if not at goal (no rng)
         let dRow = 0;
-        if (distToGoal > 2) {
-          dRow = attackDir;
-        } else if (distToGoal > 0 && rng.nextFloat() < 0.3) {
+        if (distToGoal >= 1) {
           dRow = attackDir;
         }
-        // Clamp and check occupancy implicitly via energy cost — board bounds 0-10
         const targetCol = Math.max(0, Math.min(10, teammate.cell.col + dCol));
         const targetRow = Math.max(0, Math.min(10, teammate.cell.row + dRow));
         const cost = Math.hypot(targetCol - teammate.cell.col, targetRow - teammate.cell.row);
 
         if (cost > 0 && teammate.energy >= cost) {
-          teammate.cell = { col: targetCol, row: targetRow };
-          teammate.energy = Math.max(0, teammate.energy - cost);
-          teammate.movedLastTurn = true;
+          const occupied = simState.pieces.some(p => p.cell.col === targetCol && p.cell.row === targetRow);
+          if (!occupied) {
+            teammate.cell = { col: targetCol, row: targetRow };
+            teammate.energy = Math.max(0, teammate.energy - cost);
+            teammate.movedLastTurn = true;
+          }
         }
       }
 
-      // Carrier attempts forward scoring throws
+      // Carrier attempts forward scoring throws — sampled (sharp) but geometry is quiet
       const fullCaptainPiece = simState.pieces.find(p => p.id === ourCaptain.id) || ourCarrier;
       const captainPreview = previewThrow(ourCarrier, ourCaptain.cell, simState.pieces, controlMap, simState.temporaryState);
       
@@ -102,11 +98,10 @@ export function simulateCascadeRollout(
 
       if (passExecuted) continue;
 
-      // Priority 2: Pass forward to teammate situated further forward in enemy territory (closer to our scoring cell)
+      // Priority 2: Pass forward to teammate — sampled
       const outfieldTeammates = ourPieces.filter(
         p => p.id !== ourCarrier.id && !p.isCaptain && !p.isBlocker
       );
-      // Sort by proximity to our scoring cell (closer = more forward)
       const forwardTeammates = [...outfieldTeammates].sort((a, b) => {
         const dA = Math.hypot(a.cell.col - ourScoringCell.col, a.cell.row - ourScoringCell.row);
         const dB = Math.hypot(b.cell.col - ourScoringCell.col, b.cell.row - ourScoringCell.row);
@@ -129,7 +124,7 @@ export function simulateCascadeRollout(
         }
       }
 
-      // Priority 3: Emergency pass to blocker ONLY if no outfield teammates exist or none could receive
+      // Priority 3: Emergency blocker — sampled
       if (!passExecuted) {
         const bouncerPiece = ourPieces.find(p => p.isBlocker);
         if (bouncerPiece && bouncerPiece.id !== ourCarrier.id) {
@@ -144,7 +139,7 @@ export function simulateCascadeRollout(
 
       if (passExecuted) continue;
     } else if (enemyCarrier) {
-      // ===== ENEMY OFFENSE SIMULATION + OUR DEFENSE =====
+      // ===== ENEMY OFFENSE + OUR DEFENSE — sampled throw, deterministic defense =====
       const fullEnemyCaptain = simState.pieces.find(p => p.id === enemyCaptain.id) || enemyCarrier;
 
       const enemyThrowPreview = previewThrow(
@@ -185,12 +180,11 @@ export function simulateCascadeRollout(
         }
       }
 
-      // Our defenders move to interpose directly onto the enemy's passing ray
+      // Our defenders move deterministically onto enemy ray
       const passRay = getThrowPathCells(enemyCarrier.cell, enemyCaptain.cell);
       for (const p of ourPieces) {
         if (p.isCaptain || p.energy < 1.0) continue;
 
-        // Find the closest passing ray cell to step onto
         let targetRayCell = enemyCarrier.cell;
         let minRayDist = Infinity;
         for (const rayCell of passRay) {
@@ -208,18 +202,18 @@ export function simulateCascadeRollout(
         const cost = Math.hypot(targetCol - p.cell.col, targetRow - p.cell.row);
 
         if (cost > 0 && p.energy >= cost) {
-          p.cell = { col: targetCol, row: targetRow };
-          p.energy = Math.max(0, p.energy - cost);
-          p.movedLastTurn = true;
+          const occupied = simState.pieces.some(q => q.cell.col === targetCol && q.cell.row === targetRow);
+          if (!occupied) {
+            p.cell = { col: targetCol, row: targetRow };
+            p.energy = Math.max(0, p.energy - cost);
+            p.movedLastTurn = true;
+          }
         }
       }
     }
   }
 
-  // Heuristic Stagnation & Formation Lock Failure Check (side-agnostic):
-  // If at the end of the search depth, >40% of OUR pieces still occupy their initial position
-  // AND the number of OUR pieces in the ENEMY half of the board never increased,
-  // the branch is considered to have failed to develop an attack!
+  // Soft stagnation — gradual, not -800 cliff
   const finalOurPieces = simState.pieces.filter(p => p.side === ourSide);
   const initialPositions = ourSide === 'AI' ? BOARD_CONFIG.aiPiecesStart : BOARD_CONFIG.playerPiecesStart;
   const sameInitialCount = finalOurPieces.filter(p => {
@@ -231,9 +225,15 @@ export function simulateCascadeRollout(
   const enemyHalfPieces = finalOurPieces.filter(p => isInAttackingHalf(p.cell, ourSide)).length;
   const initialEnemyHalfPieces = initialPositions.filter(p => isInAttackingHalf(p.cell, ourSide)).length;
 
-  if (pctInInitial > 0.40 && enemyHalfPieces <= initialEnemyHalfPieces && !simState.matchResult.isOver) {
-    // Stagnation penalty: our attack failed to develop — always negative from our perspective
-    return -800.0;
+  let stagnationPenalty = 0;
+  if (pctInInitial > 0.30) {
+    stagnationPenalty -= (pctInInitial - 0.30) * 1500;
+  }
+  if (enemyHalfPieces <= initialEnemyHalfPieces) {
+    stagnationPenalty -= 200;
+  }
+  if (stagnationPenalty < -50 && !simState.matchResult.isOver) {
+    return evaluateState(simState, actingSide) + stagnationPenalty;
   }
 
   return evaluateState(simState, actingSide);
