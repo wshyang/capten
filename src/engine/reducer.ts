@@ -1741,6 +1741,150 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       let isMatchOver = false;
       let winner: Side | null = null;
 
+      // 0. Apply PLAYER AI Stage 0 / Stage 2 card plays (side-agnostic)
+      // Mirrors START_PLAYER_TURN AI card handling but for PLAYER side
+      if (mctsResult.stage0Card.card && CARDS_BY_ID[mctsResult.stage0Card.card.id]) {
+        const card = CARDS_BY_ID[mctsResult.stage0Card.card.id];
+        if (updatedMomentum.PLAYER >= card.momentumCost) {
+          updatedMomentum.PLAYER -= card.momentumCost;
+          let targetPieceId: string | undefined = mctsResult.stage0Card.targetPieceId || undefined;
+          let targetCell: Cell | undefined = mctsResult.stage0Card.targetCell || undefined;
+          if (card.id === 'overclock') {
+            const targetP = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              workingPieces.find(p => p.side === 'PLAYER' && p.hasBall) ||
+              workingPieces.find(p => p.side === 'PLAYER' && !p.isCaptain);
+            if (targetP) {
+              targetP.buffs.push({ id: 'buff_overclock', type: 'OVERCLOCK', durationTurns: 1 });
+              targetPieceId = targetP.id;
+            }
+          } else if (card.id === 'surge') {
+            workingPieces.forEach(p => {
+              if (p.side === 'PLAYER') p.energy = Math.min(state.config.energy.maxEnergy, p.energy + 2.0);
+            });
+          } else if (card.id === 'set_the_play') {
+            tempState.setThePlayActive = { ...(tempState.setThePlayActive || {}), PLAYER: true };
+          }
+          newEvents.push({
+            id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+            timestamp: Date.now(),
+            turn: state.turn,
+            phase: 'PLAYER_PLAN',
+            side: 'PLAYER',
+            type: 'CARD_PLAYED',
+            details: {
+              cardId: card.id,
+              cardName: card.name,
+              momentumCost: card.momentumCost,
+              targetPieceId,
+              targetCell,
+            },
+          });
+        }
+      }
+      if (mctsResult.stage2Card.card && CARDS_BY_ID[mctsResult.stage2Card.card.id]) {
+        const card = CARDS_BY_ID[mctsResult.stage2Card.card.id];
+        if (updatedMomentum.PLAYER >= card.momentumCost) {
+          updatedMomentum.PLAYER -= card.momentumCost;
+          let targetPieceId: string | undefined = mctsResult.stage2Card.targetPieceId || undefined;
+          let targetCell: Cell | undefined = mctsResult.stage2Card.targetCell || undefined;
+          if (card.id === 'drain') {
+            const targetEnemy = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              workingPieces.find(p => p.side === 'AI' && p.hasBall) ||
+              [...workingPieces.filter(p => p.side === 'AI' && !p.isCaptain)].sort((a, b) => b.energy - a.energy)[0];
+            if (targetEnemy) {
+              targetEnemy.energy = Math.max(0, targetEnemy.energy - 2.0);
+              targetPieceId = targetEnemy.id;
+            }
+          } else if (card.id === 'clamp') {
+            const targetEnemy = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              [...workingPieces.filter(p => p.side === 'AI')].sort((a, b) => b.energy - a.energy)[0];
+            if (targetEnemy) {
+              targetEnemy.buffs.push({ id: 'buff_clamp', type: 'CLAMP', durationTurns: 1 });
+              targetPieceId = targetEnemy.id;
+            }
+          } else if (card.id === 'second_wind') {
+            const lowEnergy = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              [...workingPieces.filter(p => p.side === 'PLAYER')].sort((a, b) => a.energy - b.energy)[0];
+            if (lowEnergy) {
+              lowEnergy.energy = Math.min(state.config.energy.maxEnergy, lowEnergy.energy + 4.0);
+              targetPieceId = lowEnergy.id;
+            }
+          } else if (card.id === 'deep_breath') {
+            const resting = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              workingPieces.find(p => p.side === 'PLAYER' && !p.movedLastTurn) ||
+              workingPieces.find(p => p.side === 'PLAYER');
+            if (resting) {
+              resting.restStreak += 2;
+              targetPieceId = resting.id;
+            }
+          } else if (card.id === 'screen') {
+            const court = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              workingPieces.find(p => p.side === 'PLAYER' && !p.isCaptain) ||
+              workingPieces.find(p => p.side === 'PLAYER');
+            if (court) {
+              court.buffs.push({ id: 'buff_screen', type: 'SCREEN', durationTurns: 1 });
+              targetPieceId = court.id;
+            }
+          } else if (card.id === 'slow_burn') {
+            const court = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              workingPieces.find(p => p.side === 'PLAYER' && !p.isCaptain);
+            if (court) {
+              court.buffs.push({ id: 'buff_slow_burn', type: 'SLOW_BURN', durationTurns: 3 });
+              targetPieceId = court.id;
+            }
+          } else if (card.id === 'anchor') {
+            const court = (targetPieceId ? workingPieces.find(p => p.id === targetPieceId) : null) ||
+              workingPieces.find(p => p.side === 'PLAYER' && !p.isCaptain);
+            if (court) {
+              court.buffs.push({ id: 'buff_anchor', type: 'ANCHOR', durationTurns: 1 });
+              targetPieceId = court.id;
+            }
+          } else if (card.id === 'jam_the_lane') {
+            if (!targetCell) {
+              const enemyCarrier = workingPieces.find(p => p.side === 'AI' && p.hasBall);
+              const enemyCaptain = workingPieces.find(p => p.isCaptain && p.side === 'AI');
+              if (enemyCarrier && enemyCaptain) {
+                targetCell = {
+                  col: Math.round((enemyCarrier.cell.col + enemyCaptain.cell.col) / 2),
+                  row: Math.round((enemyCarrier.cell.row + enemyCaptain.cell.row) / 2),
+                };
+              }
+            }
+            if (targetCell) {
+              tempState.extraControlCell = { cell: targetCell, turns: 1, side: 'PLAYER' };
+            }
+          } else if (card.id === 'threaded_pass') {
+            tempState.threadedPassActive = { ...(tempState.threadedPassActive || {}), PLAYER: true };
+          } else if (card.id === 'steady_hands') {
+            tempState.steadyHandsActive = { ...(tempState.steadyHandsActive || {}), PLAYER: true };
+          } else if (card.id === 'insurance') {
+            tempState.insuranceActive = { ...(tempState.insuranceActive || {}), PLAYER: true };
+          } else if (card.id === 'no_look_pass') {
+            tempState.noLookPassActive = { ...(tempState.noLookPassActive || {}), PLAYER: true };
+          } else if (card.id === 'rally') {
+            tempState.teamEnergyInterceptionBoost = { side: 'PLAYER', multiplier: 1.25 };
+          } else if (card.id === 'ice_in_the_veins') {
+            tempState.negateDebuff = { ...(tempState.negateDebuff || {}), PLAYER: true };
+          }
+          newEvents.push({
+            id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+            timestamp: Date.now(),
+            turn: state.turn,
+            phase: 'PLAYER_PLAN',
+            side: 'PLAYER',
+            type: 'CARD_PLAYED',
+            details: {
+              cardId: card.id,
+              cardName: card.name,
+              momentumCost: card.momentumCost,
+              targetPieceId,
+              targetCell,
+              isDebuff: card.id === 'drain' || card.id === 'clamp' || card.id === 'bait',
+            },
+          });
+        }
+      }
+
       // Apply moves
       for (const m of mctsResult.moves) {
         const p = workingPieces.find(x => x.id === m.pieceId);

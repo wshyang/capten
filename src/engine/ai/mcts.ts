@@ -1,6 +1,6 @@
 import type { GameState, Cell, Posture, ThrowType, Side } from '../types';
 import { SeededRNG } from '../rng';
-import { selectAIPosture } from './posture';
+import { selectPosture } from './posture';
 import { determinizePlayerHand } from './ismcts';
 import { simulateCascadeRollout } from './rollout';
 import { evaluateStage0Cards, evaluateStage2Cards, type CardDecision } from './cardSearch';
@@ -131,8 +131,8 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG, actingSide: Side
   const iterations = config.iterations || 300;
   const explorationC = config.explorationConstant || 1.414;
 
-  const posture = selectAIPosture(state);
-  const stage0Card = evaluateStage0Cards(state);
+  const posture = selectPosture(state, actingSide);
+  const stage0Card = evaluateStage0Cards(state, actingSide);
   const allCandidates = generateJointCandidateActions(state, posture, actingSide);
 
   const rootNode: MCTSNode = {
@@ -147,7 +147,7 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG, actingSide: Side
   let nodesEvaluated = 0;
 
   for (let i = 0; i < iterations; i++) {
-    determinizePlayerHand(state, rng);
+    determinizePlayerHand(state, rng, actingSide);
 
     let node = rootNode;
     let rolloutState = state;
@@ -220,7 +220,7 @@ export function runSeededMCTS(state: GameState, rng: SeededRNG, actingSide: Side
     }
   }
 
-  const stage2Card = evaluateStage2Cards(state);
+  const stage2Card = evaluateStage2Cards(state, actingSide);
   const durationMs = Date.now() - startTime;
 
   const fmtId = (id: string) => id.replace('ai_', 'A.').replace('p_', 'P.');
