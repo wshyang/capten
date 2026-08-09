@@ -25,6 +25,29 @@ export function computeControlMap(
     { dc: -1, dr: -1 },
   ];
 
+  // Extended range (2 cells) for zone defense
+  const extendedOrthoOffsets = [
+    { dc: 2, dr: 0 },
+    { dc: -2, dr: 0 },
+    { dc: 0, dr: 2 },
+    { dc: 0, dr: -2 },
+  ];
+
+  const extendedDiagOffsets = [
+    { dc: 2, dr: 2 },
+    { dc: 2, dr: -2 },
+    { dc: -2, dr: 2 },
+    { dc: -2, dr: -2 },
+  ];
+
+  // Knight moves (2+1 cells) for extended coverage
+  const knightOffsets = [
+    { dc: 2, dr: 1 }, { dc: 2, dr: -1 },
+    { dc: -2, dr: 1 }, { dc: -2, dr: -1 },
+    { dc: 1, dr: 2 }, { dc: 1, dr: -2 },
+    { dc: -1, dr: 2 }, { dc: -1, dr: -2 },
+  ];
+
   for (const piece of pieces) {
     const sideIdx = piece.side === 'PLAYER' ? 0 : 1;
     const { col, row } = piece.cell;
@@ -72,6 +95,36 @@ export function computeControlMap(
       const nr = row + dr;
       if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
         map[nc][nr][sideIdx] += diagFactor;
+      }
+    }
+
+    // Extended range (2 cells) with reduced control factors
+    // This provides zone defense capability without the need for a separate defensive proximity bonus
+    const extendedOrthoFactor = orthoFactor * 0.5;  // 0.25 base (half of 1-cell orthogonal)
+    const extendedDiagFactor = diagFactor * 0.5;    // 0.125 base (half of 1-cell diagonal)
+    const knightFactor = diagFactor * 0.5;          // 0.125 base (same as extended diagonal)
+
+    for (const { dc, dr } of extendedOrthoOffsets) {
+      const nc = col + dc;
+      const nr = row + dr;
+      if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
+        map[nc][nr][sideIdx] += extendedOrthoFactor;
+      }
+    }
+
+    for (const { dc, dr } of extendedDiagOffsets) {
+      const nc = col + dc;
+      const nr = row + dr;
+      if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
+        map[nc][nr][sideIdx] += extendedDiagFactor;
+      }
+    }
+
+    for (const { dc, dr } of knightOffsets) {
+      const nc = col + dc;
+      const nr = row + dr;
+      if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
+        map[nc][nr][sideIdx] += knightFactor;
       }
     }
 
