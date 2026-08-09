@@ -1722,20 +1722,24 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
-    // AI plays for PLAYER side (for AI vs AI testing)
+
+    // AI plays for PLAYER side (for AI vs AI testing) — full parity with THROW_BALL + END_PLAYER_TURN
     case 'RUN_AI_TURN_FOR_PLAYER': {
       if (state.phase !== 'PLAYER_PLAN') return state;
 
       // Run MCTS for PLAYER side
       const mctsResult = runSeededMCTS(state, rng, 'PLAYER');
 
-      // Execute planned moves immediately
+      // Execute planned moves
       let workingPieces = state.pieces.map(p => ({ ...p, cell: { ...p.cell }, buffs: [...p.buffs] }));
       const tempState: any = { ...state.temporaryState };
       const newEvents: GameEvent[] = [];
       let updatedScore = { ...state.score };
       const updatedMomentum = { ...state.momentum };
+      let updatedIsRestartPhase = { ...state.isRestartPhase };
       let nextBallHolderId: string = state.ballHolderId || 'p_1';
+      let isMatchOver = false;
+      let winner: Side | null = null;
 
       // Apply moves
       for (const m of mctsResult.moves) {
@@ -1754,81 +1758,178 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
       }
 
-      // Apply throw
+      // Apply throw (full parity with THROW_BALL handler)
       if (mctsResult.throwAction) {
         const carrier = workingPieces.find(p => p.id === mctsResult.throwAction!.throwerId);
         const targetPiece = workingPieces.find(p => p.id === mctsResult.throwAction!.targetPieceId);
 
         if (carrier && targetPiece) {
-          const controlMap = computeControlMap(workingPieces, tempState);
-          const throwType = targetPiece.isCaptain ? 'HIGH_LOB' as const : 'FLAT' as const;
-          const res = resolveThrow(carrier, targetPiece, workingPieces, controlMap, rng, tempState, mctsResult.moves, mctsResult.throwAction.targetCell, false, throwType);
+          // Enforce mandatory court pass during restart
+          if (targetPiece.isCaptain && updatedIsRestartPhase.PLAYER && !carrier.isCaptain) {
+            // Can't throw to captain during restart — skip throw, holding foul will apply
+          } else {
+            const controlMap = computeControlMap(workingPieces, tempState);
+            const throwType = targetPiece.isCaptain ? 'HIGH_LOB' as const : 'FLAT' as const;
+            const isRestart = !!updatedIsRestartPhase.PLAYER;
+            const res = resolveThrow(carrier, targetPiece, workingPieces, controlMap, rng, tempState, mctsResult.moves, mctsResult.throwAction.targetCell, isRestart, throwType);
 
-          carrier.energy = res.postThrowEnergy;
-          newEvents.push({
-            id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
-            timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
-            type: 'PASS_ATTEMPTED',
-            details: { throwerId: carrier.id, targetPieceId: targetPiece.id, throwType, loft: res.loft, isClean: res.isClean },
-          });
+            carrier.energy = res.postThrowEnergy;
 
-          if (res.intercepted) {
-            const interceptor = workingPieces.find(p => p.id === res.interceptedByPieceId);
-            if (interceptor) {
-              interceptor.hasBall = true;
-              nextBallHolderId = interceptor.id;
+            // PASS_ATTEMPTED event (full details)
+            newEvents.push({
+              id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+              timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+              type: 'PASS_ATTEMPTED',
+              details: {
+                throwerId: carrier.id, targetPieceId: targetPiece.id, throwType,
+                loft: res.loft, isClean: res.isClean,
+                throwEnergyPaid: res.throwEnergyPaid, postThrowEnergy: res.postThrowEnergy,
+                preThrowEnergy: res.preThrowEnergy, rollValues: res.rollValues,
+              },
+            });
+
+            // Roulette evaluation events
+            if (res.rollValues) {
+              for (const rv of res.rollValues) {
+                if (rv.fEffective !== undefined && (rv.fEffective > 0 || rv.pCell > 0)) {
+                  newEvents.push({
+                    id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+                    timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+                    type: 'ROULETTE_EVALUATED',
+                    details: { cell: rv.cell, defPieceId: rv.defPieceId, defEnergy: rv.defEnergy, fEffective: rv.fEffective, clearRelief: rv.clearRelief, throwerEnergy: rv.throwerEnergy, pCell: rv.pCell, roll: rv.roll, intercepted: rv.intercepted },
+                  });
+                }
+              }
+            }
+
+            // Clean pass refund + momentum on clean assist to captain
+            if (res.isClean) {
+              newEvents.push({
+                id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+                timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+                type: 'PASS_CLEAN_REFUND',
+                details: { throwerId: carrier.id, targetPieceId: targetPiece.id },
+              });
+              if (targetPiece.isCaptain) {
+                updatedMomentum.PLAYER = Math.min(state.config.momentum.maxMomentum, updatedMomentum.PLAYER + state.config.momentum.cleanAssistEarn);
+                newEvents.push({
+                  id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+                  timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+                  type: 'MOMENTUM_EARNED',
+                  details: { reason: 'CLEAN_ASSIST_TO_CAPTAIN', amount: state.config.momentum.cleanAssistEarn },
+                });
+              }
+            }
+
+            if (res.intercepted) {
+              // Interception with full lunge handling
+              nextBallHolderId = res.interceptedByPieceId || 'ai_1';
+              const interceptor = workingPieces.find(p => p.id === nextBallHolderId);
+              let lungeCost = 0;
+              if (interceptor && res.interceptedAtCell && !interceptor.isCaptain) {
+                let destCell: Cell;
+                if (interceptor.isBlocker) {
+                  const targetCaptainCell = interceptor.side === 'PLAYER' ? BOARD_CONFIG.aiScoringCell : BOARD_CONFIG.playerScoringCell;
+                  destCell = findNearestDefenseCircleCell(targetCaptainCell, workingPieces, interceptor.cell);
+                } else {
+                  destCell = findNearestUnoccupiedCell(res.interceptedAtCell, workingPieces, interceptor.cell);
+                }
+                lungeCost = getEffectiveMoveCost(interceptor.cell, destCell, interceptor, tempState);
+                interceptor.energy = Math.max(0, interceptor.energy - lungeCost);
+                interceptor.cell = { ...destCell };
+                interceptor.movedLastTurn = true;
+                interceptor.hasBall = true;
+              }
+              if (interceptor) {
+                const earned = calculateInterceptionMomentumEarn(interceptor.restStreak);
+                updatedMomentum.AI = Math.min(state.config.momentum.maxMomentum, updatedMomentum.AI + earned);
+              }
               newEvents.push({
                 id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
                 timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
                 type: 'PASS_INTERCEPTED',
-                details: { interceptedAtCell: res.interceptedAtCell, interceptedByPieceId: res.interceptedByPieceId },
+                details: { interceptedAtCell: res.interceptedAtCell, interceptedByPieceId: res.interceptedByPieceId, lungeCost, postInterceptEnergy: interceptor ? interceptor.energy : 0 },
               });
-            }
-          } else if (res.catchSuccess) {
-            targetPiece.hasBall = true;
-            carrier.hasBall = false;
-            nextBallHolderId = targetPiece.id;
-            newEvents.push({
-              id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
-              timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
-              type: 'PASS_COMPLETED',
-              details: { receiverId: targetPiece.id, loft: res.loft, catchRoll: res.catchRoll },
-            });
-            if (res.scored) {
-              updatedScore.PLAYER += 1;
+            } else if (res.catchSuccess) {
+              // Successful catch
+              nextBallHolderId = targetPiece.id;
               newEvents.push({
                 id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
                 timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
-                type: 'SCORE_GOAL',
-                details: { scorerPieceId: targetPiece.id, playerScore: updatedScore.PLAYER, aiScore: updatedScore.AI },
+                type: 'PASS_COMPLETED',
+                details: { receiverId: targetPiece.id, loft: res.loft, catchRoll: res.catchRoll },
               });
+
+              if (res.scored) {
+                updatedScore.PLAYER += 1;
+                updatedIsRestartPhase.AI = true; // AI concedes goal, enters restart
+                newEvents.push({
+                  id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+                  timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+                  type: 'SCORE_GOAL',
+                  details: { scorerPieceId: targetPiece.id, playerScore: updatedScore.PLAYER, aiScore: updatedScore.AI },
+                });
+
+                if (updatedScore.PLAYER >= state.config.board.pointsToWin) {
+                  isMatchOver = true;
+                  winner = 'PLAYER';
+                } else {
+                  // Ball to conceding captain (ai_captain), energy reset
+                  nextBallHolderId = 'ai_captain';
+                  workingPieces = workingPieces.map(p => {
+                    if (p.id === 'ai_captain') return { ...p, energy: state.config.energy.maxEnergy, movedLastTurn: false, hasBall: true };
+                    return { ...p, hasBall: false };
+                  });
+                }
+              } else if (!targetPiece.isCaptain) {
+                updatedIsRestartPhase.PLAYER = false; // Mandatory court pass completed
+              }
+            } else {
+              // Missed catch: overshoot, undershoot, fumble, out of bounds
+              const missedType = res.missedCatchType || 'FUMBLE';
+              nextBallHolderId = res.ballHolderId || 'ai_1';
+
+              if (missedType === 'OUT_OF_BOUNDS') {
+                newEvents.push({ id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`, timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER', type: 'OUT_OF_BOUNDS_THROW_IN', details: { exitCell: res.ballRestCell, throwInPieceId: res.ballHolderId, reason: 'Overthrow out of bounds. Throw-in awarded to opponent.' } });
+              } else if (missedType === 'UNDERSHOOT') {
+                newEvents.push({ id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`, timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER', type: 'PASS_UNDERSHOOT_RACE', details: { landingCell: res.ballRestCell, winnerId: res.ballHolderId, reason: 'Undershoot dropped short. Resolved via race contest.' } });
+              } else if (missedType === 'OVERSHOOT') {
+                newEvents.push({ id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`, timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER', type: 'PASS_OVERSHOOT_GRABBED', details: { landingCell: res.ballRestCell, grabberId: res.ballHolderId, reason: 'Overthrow continued past receiver and was grabbed in flight.' } });
+              } else {
+                newEvents.push({ id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`, timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER', type: 'PASS_FUMBLE_LOOSE', details: { landingCell: res.ballRestCell, reason: 'Fumble dropped in place on receiver cell.' } });
+              }
             }
           }
         }
-      } else {
-        // Holding foul: no throw = turnover
-        const playerCarrier = workingPieces.find(p => p.side === 'PLAYER' && p.hasBall);
-        if (playerCarrier && state.config.board.holdingFoulEnforced) {
+      }
+
+      // Holding foul: if Player carrier still has ball after turn (no throw or skipped throw)
+      const playerCarrierAfter = workingPieces.find(p => p.side === 'PLAYER' && p.hasBall);
+      if (playerCarrierAfter && state.config.board.holdingFoulEnforced && !isMatchOver) {
+        // Check if a throw was actually attempted and resolved
+        const throwAttempted = newEvents.some(e => e.type === 'PASS_ATTEMPTED');
+        if (!throwAttempted) {
           nextBallHolderId = 'ai_1';
+          newEvents.push({
+            id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
+            timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
+            type: 'HOLDING_FOUL_TURNOVER',
+            details: { foulPieceId: playerCarrierAfter.id, turnoverToId: 'ai_1', reason: 'Holding foul: Ball held without throwing. Turnover to opponent.' },
+          });
         }
       }
 
       // Sync ball holder
       workingPieces = workingPieces.map(p => ({ ...p, hasBall: p.id === nextBallHolderId }));
 
-      // AI pieces: energy regen + rest streak (same as END_PLAYER_TURN does for AI)
+      // AI pieces: energy regen + rest streak + buff tick
       workingPieces = workingPieces.map(p => {
         if (p.side === 'AI') {
           const nextBuffs = p.buffs.map(b => ({ ...b, durationTurns: b.durationTurns - 1 })).filter(b => b.durationTurns > 0);
           let streak = p.restStreak;
           let regenAmount = 1.0;
-          if (p.movedLastTurn) {
-            streak = 0;
-            regenAmount = state.config.energy.baseRegen;
-          } else {
-            streak += 1;
-            regenAmount = state.config.energy.compoundingRegenBase + streak;
-          }
+          if (p.movedLastTurn) { streak = 0; regenAmount = state.config.energy.baseRegen; }
+          else { streak += 1; regenAmount = state.config.energy.compoundingRegenBase + streak; }
           const newEnergy = Math.min(state.config.energy.maxEnergy, p.energy + regenAmount);
           return { ...p, buffs: nextBuffs, restStreak: streak, energy: newEnergy, movedLastTurn: false };
         }
@@ -1847,24 +1948,29 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // AI momentum regen
       const aiMom = Math.min(state.config.momentum.maxMomentum, state.momentum.AI + state.config.momentum.regenPerTurn);
 
+      if (isMatchOver) {
+        return {
+          ...state, phase: 'MATCH_OVER', pieces: workingPieces, score: updatedScore,
+          ballHolderId: nextBallHolderId, momentum: { ...updatedMomentum, AI: aiMom },
+          isRestartPhase: updatedIsRestartPhase, temporaryState: tempState,
+          decks: { ...state.decks, AI: aiDeck }, hands: { ...state.hands, AI: aiHand },
+          eventLog: [...state.eventLog, ...newEvents],
+          plannedMoves: [], plannedThrow: null, plannedCards: [],
+          matchResult: { isOver: true, winner, reason: `Victory: ${updatedScore.PLAYER}-${updatedScore.AI}` },
+        };
+      }
+
       return {
-        ...state,
-        phase: 'AI_TURN',
-        toAct: 'AI',
-        pieces: workingPieces,
-        score: updatedScore,
+        ...state, phase: 'AI_TURN', toAct: 'AI',
+        pieces: workingPieces, score: updatedScore,
         ballHolderId: nextBallHolderId,
         momentum: { ...updatedMomentum, AI: aiMom },
-        temporaryState: tempState,
-        decks: { ...state.decks, AI: aiDeck },
-        hands: { ...state.hands, AI: aiHand },
+        isRestartPhase: updatedIsRestartPhase, temporaryState: tempState,
+        decks: { ...state.decks, AI: aiDeck }, hands: { ...state.hands, AI: aiHand },
         eventLog: [...state.eventLog, ...newEvents],
-        plannedMoves: [],
-        plannedThrow: null,
-        plannedCards: [],
+        plannedMoves: [], plannedThrow: null, plannedCards: [],
       };
     }
-
     // Resolves the AI's planned moves, card plays and throw upon player clicking "Start Turn"
     case 'START_PLAYER_TURN': {
       if (state.phase !== 'AI_PLANNED_REVIEW' && state.phase !== 'AI_TURN') return state;
