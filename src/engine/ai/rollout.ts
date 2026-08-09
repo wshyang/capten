@@ -4,11 +4,14 @@ import { computeControlMap } from '../control';
 import { BOARD_CONFIG, areCellsEqual } from '../config/board';
 import { evaluateState } from './evaluate';
 import { SeededRNG } from '../rng';
+import { isInAttackingHalf } from './sideHelpers';
 
 /**
  * Patch v3.1 §F: Goal-Seeking Rule-Cascade Rollout Policy
- * Fast heuristic simulation policy for ultra-deep MCTS rollouts.
+ * Denoised leaf — deterministic geometry + soft stagnation, sampled throw with variance reduction.
+ * Side-agnostic, quiet geometry, sharp throws.
  */
+
 export function simulateCascadeRollout(
   state: GameState,
   depth: number,
@@ -17,52 +20,68 @@ export function simulateCascadeRollout(
 ): number {
   const simState = cloneStateForSimulation(state);
 
+  const ourSide: Side = actingSide;
+  const enemySide: Side = actingSide === 'AI' ? 'PLAYER' : 'AI';
+  const ourScoringCell = actingSide === 'AI' ? BOARD_CONFIG.aiScoringCell : BOARD_CONFIG.playerScoringCell;
+  const enemyScoringCell = actingSide === 'AI' ? BOARD_CONFIG.playerScoringCell : BOARD_CONFIG.aiScoringCell;
+
   for (let step = 0; step < depth; step++) {
     if (simState.matchResult.isOver) break;
 
-    const aiPieces = simState.pieces.filter(p => p.side === 'AI');
-    const aiCarrier = aiPieces.find(p => p.hasBall);
-    const aiCaptain = aiPieces.find(p => p.isCaptain) || { cell: BOARD_CONFIG.aiScoringCell, id: 'ai_captain' };
+    const ourPieces = simState.pieces.filter(p => p.side === ourSide);
+    const enemyPieces = simState.pieces.filter(p => p.side === enemySide);
+    const ourCarrier = ourPieces.find(p => p.hasBall);
+    const ourCaptain = ourPieces.find(p => p.isCaptain) || { cell: ourScoringCell, id: ourSide === 'AI' ? 'ai_captain' : 'p_captain' };
+    const enemyCarrier = simState.pieces.find(p => p.side === enemySide && p.hasBall);
+    const enemyCaptain = simState.pieces.find(p => p.isCaptain && p.side === enemySide) || { cell: enemyScoringCell, id: enemySide === 'AI' ? 'ai_captain' : 'p_captain' };
     const controlMap = computeControlMap(simState.pieces, simState.temporaryState);
 
-    if (aiCarrier) {
-      // 1. Mobile teammates cut forward into the attacking shooting pocket (rows 2-3) and baseline flank (rows 0-1)
-      const mobileTeammates = aiPieces.filter(p => p.id !== aiCarrier.id && !p.isCaptain && !p.isBlocker && p.energy >= 1.0);
+    if (ourCarrier) {
+      // ===== OUR OFFENSE: deterministic cuts toward our scoring cell =====
+      const mobileTeammates = ourPieces.filter(p => p.id !== ourCarrier.id && !p.isCaptain && !p.isBlocker && p.energy >= 1.0);
       for (const teammate of mobileTeammates) {
         const dCol = Math.sign(5 - teammate.cell.col);
-        // Step forward toward row 2-3 (shooting sweet spot), or sneak to row 0 if already deep
-        const dRow = teammate.cell.row > 2 ? -1 : (teammate.cell.row > 0 && rng.nextFloat() < 0.3 ? -1 : 0);
+        const distToGoal = Math.abs(teammate.cell.row - ourScoringCell.row);
+        const attackDir = ourSide === 'AI' ? -1 : 1;
+        // Deterministic: always step if not at goal (no rng)
+        let dRow = 0;
+        if (distToGoal >= 1) {
+          dRow = attackDir;
+        }
         const targetCol = Math.max(0, Math.min(10, teammate.cell.col + dCol));
         const targetRow = Math.max(0, Math.min(10, teammate.cell.row + dRow));
         const cost = Math.hypot(targetCol - teammate.cell.col, targetRow - teammate.cell.row);
 
         if (cost > 0 && teammate.energy >= cost) {
-          teammate.cell = { col: targetCol, row: targetRow };
-          teammate.energy = Math.max(0, teammate.energy - cost);
-          teammate.movedLastTurn = true;
+          const occupied = simState.pieces.some(p => p.cell.col === targetCol && p.cell.row === targetRow);
+          if (!occupied) {
+            teammate.cell = { col: targetCol, row: targetRow };
+            teammate.energy = Math.max(0, teammate.energy - cost);
+            teammate.movedLastTurn = true;
+          }
         }
       }
 
-      // 2. Carrier attempts forward scoring throws
-      const fullCaptainPiece = simState.pieces.find(p => p.id === aiCaptain.id) || aiCarrier;
-      const captainPreview = previewThrow(aiCarrier, aiCaptain.cell, simState.pieces, controlMap, simState.temporaryState);
+      // Carrier attempts forward scoring throws — sampled (sharp) but geometry is quiet
+      const fullCaptainPiece = simState.pieces.find(p => p.id === ourCaptain.id) || ourCarrier;
+      const captainPreview = previewThrow(ourCarrier, ourCaptain.cell, simState.pieces, controlMap, simState.temporaryState);
       
       let passExecuted = false;
 
       if (captainPreview.isClean || captainPreview.cumulativeCaptureRisk < 0.6) {
-        const res = resolveThrow(aiCarrier, fullCaptainPiece, simState.pieces, controlMap, rng, simState.temporaryState);
+        const res = resolveThrow(ourCarrier, fullCaptainPiece, simState.pieces, controlMap, rng, simState.temporaryState);
         if (!res.intercepted) {
-          aiCarrier.hasBall = false;
+          ourCarrier.hasBall = false;
           fullCaptainPiece.hasBall = true;
           if (res.scored) {
-            simState.score.AI += 1;
-            if (simState.score.AI >= simState.config.board.pointsToWin) {
+            simState.score[ourSide] += 1;
+            if (simState.score[ourSide] >= simState.config.board.pointsToWin) {
               simState.matchResult.isOver = true;
               break;
             }
           }
         } else if (res.interceptedByPieceId) {
-          aiCarrier.hasBall = false;
+          ourCarrier.hasBall = false;
           const interceptor = simState.pieces.find(p => p.id === res.interceptedByPieceId);
           if (interceptor) {
             interceptor.hasBall = true;
@@ -79,21 +98,25 @@ export function simulateCascadeRollout(
 
       if (passExecuted) continue;
 
-      // Priority 2: Pass forward to teammate situated further forward in enemy territory (lower row index)
-      const outfieldTeammates = aiPieces.filter(
-        p => p.id !== aiCarrier.id && !p.isCaptain && !p.isBlocker && p.id !== 'ai_blocker'
+      // Priority 2: Pass forward to teammate — sampled
+      const outfieldTeammates = ourPieces.filter(
+        p => p.id !== ourCarrier.id && !p.isCaptain && !p.isBlocker
       );
-      const forwardTeammates = [...outfieldTeammates].sort((a, b) => a.cell.row - b.cell.row);
+      const forwardTeammates = [...outfieldTeammates].sort((a, b) => {
+        const dA = Math.hypot(a.cell.col - ourScoringCell.col, a.cell.row - ourScoringCell.row);
+        const dB = Math.hypot(b.cell.col - ourScoringCell.col, b.cell.row - ourScoringCell.row);
+        return dA - dB;
+      });
 
       for (const receiver of forwardTeammates) {
-        const res = resolveThrow(aiCarrier, receiver, simState.pieces, controlMap, rng, simState.temporaryState);
+        const res = resolveThrow(ourCarrier, receiver, simState.pieces, controlMap, rng, simState.temporaryState);
         if (!res.intercepted) {
-          aiCarrier.hasBall = false;
+          ourCarrier.hasBall = false;
           receiver.hasBall = true;
           passExecuted = true;
           break;
         } else if (res.interceptedByPieceId) {
-          aiCarrier.hasBall = false;
+          ourCarrier.hasBall = false;
           const interceptor = simState.pieces.find(p => p.id === res.interceptedByPieceId);
           if (interceptor) interceptor.hasBall = true;
           passExecuted = true;
@@ -101,13 +124,13 @@ export function simulateCascadeRollout(
         }
       }
 
-      // Priority 3: Emergency pass to bouncer ONLY if no outfield teammates exist or none could receive
+      // Priority 3: Emergency blocker — sampled
       if (!passExecuted) {
-        const bouncerPiece = aiPieces.find(p => p.isBlocker || p.id === 'ai_blocker');
-        if (bouncerPiece && bouncerPiece.id !== aiCarrier.id) {
-          const res = resolveThrow(aiCarrier, bouncerPiece, simState.pieces, controlMap, rng, simState.temporaryState);
+        const bouncerPiece = ourPieces.find(p => p.isBlocker);
+        if (bouncerPiece && bouncerPiece.id !== ourCarrier.id) {
+          const res = resolveThrow(ourCarrier, bouncerPiece, simState.pieces, controlMap, rng, simState.temporaryState);
           if (!res.intercepted) {
-            aiCarrier.hasBall = false;
+            ourCarrier.hasBall = false;
             bouncerPiece.hasBall = true;
             passExecuted = true;
           }
@@ -115,75 +138,72 @@ export function simulateCascadeRollout(
       }
 
       if (passExecuted) continue;
-    } else {
-      // OFF-BALL DEFENCE & PLAYER OFFENSE SIMULATION
-      const playerCarrier = simState.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
-      const playerCaptain = simState.pieces.find(p => p.isCaptain && p.side === 'PLAYER') || { cell: BOARD_CONFIG.playerScoringCell, id: 'p_captain' };
+    } else if (enemyCarrier) {
+      // ===== ENEMY OFFENSE + OUR DEFENSE — sampled throw, deterministic defense =====
+      const fullEnemyCaptain = simState.pieces.find(p => p.id === enemyCaptain.id) || enemyCarrier;
 
-      if (playerCarrier) {
-        // 1. Simulate Player's potential throw to Captain if not in baseline restart:
-        const fullPlayerCaptain = simState.pieces.find(p => p.id === playerCaptain.id) || playerCarrier;
-        const playerThrowPreview = previewThrow(
-          playerCarrier,
-          playerCaptain.cell,
-          simState.pieces,
-          controlMap,
-          simState.temporaryState,
-          undefined,
-          !!simState.isRestartPhase?.PLAYER
-        );
+      const enemyThrowPreview = previewThrow(
+        enemyCarrier,
+        enemyCaptain.cell,
+        simState.pieces,
+        controlMap,
+        simState.temporaryState,
+        undefined,
+        !!simState.isRestartPhase?.[enemySide]
+      );
 
-        if (!simState.isRestartPhase?.PLAYER && (playerThrowPreview.isClean || playerThrowPreview.cumulativeCaptureRisk < 0.6)) {
-          const res = resolveThrow(playerCarrier, fullPlayerCaptain, simState.pieces, controlMap, rng, simState.temporaryState);
-          if (!res.intercepted) {
-            playerCarrier.hasBall = false;
-            fullPlayerCaptain.hasBall = true;
-            if (res.scored) {
-              simState.score.PLAYER += 1;
-              if (simState.score.PLAYER >= simState.config.board.pointsToWin) {
-                simState.matchResult.isOver = true;
-                simState.matchResult.winner = 'PLAYER';
-                break;
-              }
+      if (!simState.isRestartPhase?.[enemySide] && (enemyThrowPreview.isClean || enemyThrowPreview.cumulativeCaptureRisk < 0.6)) {
+        const res = resolveThrow(enemyCarrier, fullEnemyCaptain, simState.pieces, controlMap, rng, simState.temporaryState);
+        if (!res.intercepted) {
+          enemyCarrier.hasBall = false;
+          fullEnemyCaptain.hasBall = true;
+          if (res.scored) {
+            simState.score[enemySide] += 1;
+            if (simState.score[enemySide] >= simState.config.board.pointsToWin) {
+              simState.matchResult.isOver = true;
+              simState.matchResult.winner = enemySide;
+              break;
             }
-          } else if (res.interceptedByPieceId) {
-            playerCarrier.hasBall = false;
-            const interceptor = simState.pieces.find(p => p.id === res.interceptedByPieceId);
-            if (interceptor) {
-              interceptor.hasBall = true;
-              if (res.interceptedAtCell && !interceptor.isCaptain) {
-                const cost = Math.hypot(res.interceptedAtCell.col - interceptor.cell.col, res.interceptedAtCell.row - interceptor.cell.row);
-                interceptor.energy = Math.max(0, interceptor.energy - cost);
-                interceptor.cell = { ...res.interceptedAtCell };
-                interceptor.movedLastTurn = true;
-              }
+          }
+        } else if (res.interceptedByPieceId) {
+          enemyCarrier.hasBall = false;
+          const interceptor = simState.pieces.find(p => p.id === res.interceptedByPieceId);
+          if (interceptor) {
+            interceptor.hasBall = true;
+            if (res.interceptedAtCell && !interceptor.isCaptain) {
+              const cost = Math.hypot(res.interceptedAtCell.col - interceptor.cell.col, res.interceptedAtCell.row - interceptor.cell.row);
+              interceptor.energy = Math.max(0, interceptor.energy - cost);
+              interceptor.cell = { ...res.interceptedAtCell };
+              interceptor.movedLastTurn = true;
             }
           }
         }
+      }
 
-        // 2. AI Defenders move to interpose directly onto the player's passing ray
-        const passRay = getThrowPathCells(playerCarrier.cell, playerCaptain.cell);
-        for (const p of aiPieces) {
-          if (p.isCaptain || p.energy < 1.0) continue;
+      // Our defenders move deterministically onto enemy ray
+      const passRay = getThrowPathCells(enemyCarrier.cell, enemyCaptain.cell);
+      for (const p of ourPieces) {
+        if (p.isCaptain || p.energy < 1.0) continue;
 
-          // Find the closest passing ray cell to step onto
-          let targetRayCell = playerCarrier.cell;
-          let minRayDist = Infinity;
-          for (const rayCell of passRay) {
-            const d = Math.hypot(rayCell.col - p.cell.col, rayCell.row - p.cell.row);
-            if (d < minRayDist) {
-              minRayDist = d;
-              targetRayCell = rayCell;
-            }
+        let targetRayCell = enemyCarrier.cell;
+        let minRayDist = Infinity;
+        for (const rayCell of passRay) {
+          const d = Math.hypot(rayCell.col - p.cell.col, rayCell.row - p.cell.row);
+          if (d < minRayDist) {
+            minRayDist = d;
+            targetRayCell = rayCell;
           }
+        }
 
-          const dCol = Math.sign(targetRayCell.col - p.cell.col);
-          const dRow = Math.sign(targetRayCell.row - p.cell.row);
-          const targetCol = Math.max(0, Math.min(10, p.cell.col + dCol));
-          const targetRow = Math.max(0, Math.min(10, p.cell.row + dRow));
-          const cost = Math.hypot(targetCol - p.cell.col, targetRow - p.cell.row);
+        const dCol = Math.sign(targetRayCell.col - p.cell.col);
+        const dRow = Math.sign(targetRayCell.row - p.cell.row);
+        const targetCol = Math.max(0, Math.min(10, p.cell.col + dCol));
+        const targetRow = Math.max(0, Math.min(10, p.cell.row + dRow));
+        const cost = Math.hypot(targetCol - p.cell.col, targetRow - p.cell.row);
 
-          if (cost > 0 && p.energy >= cost) {
+        if (cost > 0 && p.energy >= cost) {
+          const occupied = simState.pieces.some(q => q.cell.col === targetCol && q.cell.row === targetRow);
+          if (!occupied) {
             p.cell = { col: targetCol, row: targetRow };
             p.energy = Math.max(0, p.energy - cost);
             p.movedLastTurn = true;
@@ -193,24 +213,27 @@ export function simulateCascadeRollout(
     }
   }
 
-  // Heuristic Stagnation & Formation Lock Failure Check:
-  // If at the end of the search depth, >40% of AI pieces still occupy their initial position
-  // AND the number of AI pieces in the ENEMY half of the board (rows <= 4) never changed/increased,
-  // the branch is considered to have failed to develop an attack!
-  const finalAIPieces = simState.pieces.filter(p => p.side === 'AI');
-  const initialPositions = BOARD_CONFIG.aiPiecesStart;
-  const sameInitialCount = finalAIPieces.filter(p => {
+  // Soft stagnation — gradual, not -800 cliff
+  const finalOurPieces = simState.pieces.filter(p => p.side === ourSide);
+  const initialPositions = ourSide === 'AI' ? BOARD_CONFIG.aiPiecesStart : BOARD_CONFIG.playerPiecesStart;
+  const sameInitialCount = finalOurPieces.filter(p => {
     const init = initialPositions.find(x => x.id === p.id);
     return init && areCellsEqual(init.cell, p.cell);
   }).length;
-  const pctInInitial = sameInitialCount / (finalAIPieces.length || 7);
+  const pctInInitial = sameInitialCount / (finalOurPieces.length || 7);
 
-  const enemyHalfPieces = finalAIPieces.filter(p => p.cell.row <= 4).length;
-  const initialEnemyHalfPieces = initialPositions.filter(p => p.cell.row <= 4).length;
+  const enemyHalfPieces = finalOurPieces.filter(p => isInAttackingHalf(p.cell, ourSide)).length;
+  const initialEnemyHalfPieces = initialPositions.filter(p => isInAttackingHalf(p.cell, ourSide)).length;
 
-  if (pctInInitial > 0.40 && enemyHalfPieces <= initialEnemyHalfPieces && !simState.matchResult.isOver) {
-    // Stagnation penalty from actingSide's perspective
-    return actingSide === 'AI' ? -800.0 : 800.0;
+  let stagnationPenalty = 0;
+  if (pctInInitial > 0.30) {
+    stagnationPenalty -= (pctInInitial - 0.30) * 1500;
+  }
+  if (enemyHalfPieces <= initialEnemyHalfPieces) {
+    stagnationPenalty -= 200;
+  }
+  if (stagnationPenalty < -50 && !simState.matchResult.isOver) {
+    return evaluateState(simState, actingSide) + stagnationPenalty;
   }
 
   return evaluateState(simState, actingSide);
