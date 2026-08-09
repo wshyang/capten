@@ -1,4 +1,4 @@
-import type { GameState } from '../types';
+import type { GameState, Side } from '../types';
 import { previewThrow, resolveThrow, getThrowPathCells } from '../interception';
 import { computeControlMap } from '../control';
 import { BOARD_CONFIG, areCellsEqual } from '../config/board';
@@ -12,7 +12,8 @@ import { SeededRNG } from '../rng';
 export function simulateCascadeRollout(
   state: GameState,
   depth: number,
-  rng: SeededRNG
+  rng: SeededRNG,
+  actingSide: Side = 'AI'
 ): number {
   const simState = cloneStateForSimulation(state);
 
@@ -208,10 +209,11 @@ export function simulateCascadeRollout(
   const initialEnemyHalfPieces = initialPositions.filter(p => p.cell.row <= 4).length;
 
   if (pctInInitial > 0.40 && enemyHalfPieces <= initialEnemyHalfPieces && !simState.matchResult.isOver) {
-    return -800.0; // Branch considered failed due to lack of forward enemy penetration
+    // Stagnation penalty from actingSide's perspective
+    return actingSide === 'AI' ? -800.0 : 800.0;
   }
 
-  return evaluateState(simState);
+  return evaluateState(simState, actingSide);
 }
 
 function cloneStateForSimulation(state: GameState): GameState {

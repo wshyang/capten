@@ -68,10 +68,20 @@ export function calculateTotalThrowCost(
   to: Cell,
   type: ThrowType = 'FLAT',
   config: ThrowConfig = THROW_CONFIG,
-  divisor = 3.0
+  divisor = 3.0,
+  balanceConfig?: any
 ): number {
   const dist = Math.hypot(to.col - from.col, to.row - from.row);
-  const baseCost = dist / divisor;
+  
+  // Apply exponential scaling if balance config is enabled
+  let baseCost: number;
+  if (balanceConfig?.useExponentialThrowCost) {
+    const exponent = balanceConfig.throwCostExponent || 1.5;
+    baseCost = Math.pow(dist, exponent) / divisor;
+  } else {
+    baseCost = dist / divisor;
+  }
+  
   const surcharge = getLoftSurcharge(type, config);
   return baseCost + surcharge;
 }

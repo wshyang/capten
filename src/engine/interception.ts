@@ -110,12 +110,13 @@ export function previewThrow(
   temporaryState?: ActiveTemporaryState,
   plannedMoves?: { pieceId: string; destCell?: Cell; cost?: number }[],
   isRestartPass?: boolean,
-  throwType: ThrowType = 'FLAT'
+  throwType: ThrowType = 'FLAT',
+  balanceConfig?: any
 ): ThrowPreviewData {
   const enemySide: Side = thrower.side === 'PLAYER' ? 'AI' : 'PLAYER';
   const throwDist = Math.hypot(targetCell.col - thrower.cell.col, targetCell.row - thrower.cell.row);
 
-  let throwCost = calculateTotalThrowCost(thrower.cell, targetCell, throwType, THROW_CONFIG);
+  let throwCost = calculateTotalThrowCost(thrower.cell, targetCell, throwType, THROW_CONFIG, 3.0, balanceConfig);
   if (temporaryState?.longBombActive?.[thrower.side]) {
     throwCost /= 2.0;
   }
@@ -177,6 +178,10 @@ export function previewThrow(
         const relief = calculateClearRelief(loft, defHeight, THROW_CONFIG);
         const fEffective = calculateEffectiveControl(enemyFactor, relief);
         pCell = calculateInterceptionProbability(fEffective, defEnergy, effectiveEatt);
+        
+        // Base AoC system already rewards defenders for being near the throw path
+        // (they must be within ~1 cell to control cells on the path)
+        // No additional defensive proximity bonus needed - it would be double-counting
       }
     }
 
@@ -226,7 +231,8 @@ export function resolveThrow(
   plannedMoves?: { pieceId: string; destCell?: Cell; cost?: number }[],
   effectiveTargetCell?: Cell,
   isRestartPass?: boolean,
-  throwType: ThrowType = 'FLAT'
+  throwType: ThrowType = 'FLAT',
+  balanceConfig?: any
 ): ThrowResolution {
   const finalCell = effectiveTargetCell || targetPiece.cell;
   const preview = previewThrow(
@@ -237,7 +243,8 @@ export function resolveThrow(
     temporaryState,
     plannedMoves,
     isRestartPass,
-    throwType
+    throwType,
+    balanceConfig
   );
   const loft = LOFT_BY_TYPE[throwType] ?? 0;
   const catcherHeight = targetPiece.height ?? (targetPiece.isCaptain ? THROW_CONFIG.captainHeight : 0);

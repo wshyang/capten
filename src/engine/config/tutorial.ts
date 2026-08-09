@@ -55,14 +55,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 5,
-    title: '5. How to Throw & Throwing Costs (3:1 Ratio)',
-    subtitle: 'E_throw = Distance / 3.0 & 100% Clean Pass Refunds',
+    title: '5. How to Throw & Throwing Costs (Exponential Scaling)',
+    subtitle: 'E_throw = (Distance^1.6) / 3.0 & 100% Clean Pass Refunds',
     highlightTestId: 'throw-action-toolbar',
     explanation:
       'To throw: click your ball carrier. The Throw Action Toolbar illuminates with eligible receivers and their capture risk. Click a teammate (or their staged destination cell) on the board or toolbar. A golden throw vector arrow and ghost ball will preview the flight path.',
     keyTakeaway:
-      'Throwing has a 3:1 energy efficiency ratio over moving: E_throw = Distance / 3.0 (a 6-cell cross-court throw costs only 2.0e instead of 6.0e!). Furthermore, if a throw travels through open air without crossing enemy control, the throw energy is 100% REFUNDED (0.0e cost)!',
-    tip: 'Clean passes pay 0.0e stamina, rewarding patient court spacing and open passing lanes.',
+      'Throwing uses exponential cost scaling: E_throw = (Distance^1.6) / 3.0. Short passes (2-4 cells) cost 1.1-3.3e, but long passes (6+ cells) become expensive (5.9e+). However, if a throw travels through open air without crossing enemy control, the throw energy is 100% REFUNDED (0.0e cost)!',
+    tip: 'Clean passes pay 0.0e stamina! Build attacks through positioning and short passes rather than expensive long throws.',
   },
   {
     id: 6,
@@ -78,13 +78,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 7,
     title: '7. Area-of-Control & Interceptions',
-    subtitle: 'Escape Velocity & Defender Lunge Sprints',
+    subtitle: 'Escape Velocity, Distance Risk & Defensive Positioning',
     highlightTestId: 'control-shading-layer',
     explanation:
       'Every piece projects a watercolor Area-of-Control (AoC) wash onto adjacent cells. When a throw crosses an enemy AoC, an interception check occurs. Your thrower’s remaining stamina (E_att = E_carrier - E_throw) acts as kinetic escape velocity against the defender’s stamina (E_def).',
     keyTakeaway:
-      'Rested throwers (8.0e+) face low risk (~10%), while tired throwers face heavy risk (>80%). If intercepted, the defender captures the ball and immediately lunges to the interception cell, paying the movement energy cost!',
-    tip: 'Avoid throwing across dense clusters of red pirate AoC zones with low thrower energy.',
+      'Rested throwers (8.0e+) face low risk (~10%), while tired throwers face heavy risk (>80%). Long throws face higher base interception risk. Defenders positioned near throw paths get significant bonuses! If intercepted, the defender captures the ball and immediately lunges to the interception cell, paying the movement energy cost!',
+    tip: 'Avoid long throws through dense defensive clusters. Position defenders near likely passing lanes for maximum interception bonuses!',
   },
   {
     id: 8,
@@ -140,5 +140,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     keyTakeaway:
       'Always execute a pass or throw before clicking "Commit & End Player Turn" to avoid turnovers and maintain tactical pressure.',
     tip: 'Filter the live telemetry feed anytime by "All Actions", "AI Only", or "Buffs & Debuffs"!',
+  },
+  {
+    id: 13,
+    title: '13. Strategic Positioning & Balance',
+    subtitle: 'Why Positioning Matters More Than Ever',
+    highlightTestId: 'court-cell-5-6',
+    explanation:
+      'The game balance rewards tactical positioning over "Hail Mary" throws. Long throws (6+ cells) are expensive and risky due to exponential cost scaling and distance-based interception risk. Defenders with overlapping 2-cell AoC zones create formidable defensive coverage.',
+    keyTakeaway:
+      'Build attacks through short, safe passes and good court spacing. On defense, position pieces with overlapping 2-cell AoC zones to cover likely passing lanes. Team coordination and positioning beat raw throwing distance!',
+    tip: 'Use the "Triangle Offense" (3 players in triangle formation) for multiple short passing options. Use "Zone Defense" (overlapping 2-cell AoC coverage) to create no-fly zones!',
   },
 ];
