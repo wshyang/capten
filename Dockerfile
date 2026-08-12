@@ -47,6 +47,6 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Ensure non-root ownership for security hardening
 RUN chown -R nginx:nginx /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 3000
 
 CMD ["nginx", "-g", "daemon off;"]
