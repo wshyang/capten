@@ -12,7 +12,7 @@ describe('Swing Card Stamina Deduction Invariant (§10)', () => {
     state.hands.PLAYER = [CARDS_BY_ID['surge']];
 
     // Find highest energy piece before surge
-    const sortedBefore = [...state.pieces.filter(p => p.side === 'PLAYER')].sort((a, b) => b.energy - a.energy);
+    const sortedBefore = state.pieces.filter(p => p.side === 'PLAYER').sort((a, b) => b.energy - a.energy);
     const highestBefore = sortedBefore[0];
     const initialEnergy = highestBefore.energy;
 

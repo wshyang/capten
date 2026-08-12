@@ -25,28 +25,7 @@ export function computeControlMap(
     { dc: -1, dr: -1 },
   ];
 
-  // Extended range (2 cells) for zone defense
-  const extendedOrthoOffsets = [
-    { dc: 2, dr: 0 },
-    { dc: -2, dr: 0 },
-    { dc: 0, dr: 2 },
-    { dc: 0, dr: -2 },
-  ];
 
-  const extendedDiagOffsets = [
-    { dc: 2, dr: 2 },
-    { dc: 2, dr: -2 },
-    { dc: -2, dr: 2 },
-    { dc: -2, dr: -2 },
-  ];
-
-  // Knight moves (2+1 cells) for extended coverage
-  const knightOffsets = [
-    { dc: 2, dr: 1 }, { dc: 2, dr: -1 },
-    { dc: -2, dr: 1 }, { dc: -2, dr: -1 },
-    { dc: 1, dr: 2 }, { dc: 1, dr: -2 },
-    { dc: -1, dr: 2 }, { dc: -1, dr: -2 },
-  ];
 
   for (const piece of pieces) {
     const sideIdx = piece.side === 'PLAYER' ? 0 : 1;
@@ -95,36 +74,6 @@ export function computeControlMap(
       const nr = row + dr;
       if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
         map[nc][nr][sideIdx] += diagFactor;
-      }
-    }
-
-    // Extended range (2 cells) with reduced control factors
-    // This provides zone defense capability without the need for a separate defensive proximity bonus
-    const extendedOrthoFactor = orthoFactor * 0.5;  // 0.25 base (half of 1-cell orthogonal)
-    const extendedDiagFactor = diagFactor * 0.5;    // 0.125 base (half of 1-cell diagonal)
-    const knightFactor = diagFactor * 0.5;          // 0.125 base (same as extended diagonal)
-
-    for (const { dc, dr } of extendedOrthoOffsets) {
-      const nc = col + dc;
-      const nr = row + dr;
-      if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
-        map[nc][nr][sideIdx] += extendedOrthoFactor;
-      }
-    }
-
-    for (const { dc, dr } of extendedDiagOffsets) {
-      const nc = col + dc;
-      const nr = row + dr;
-      if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
-        map[nc][nr][sideIdx] += extendedDiagFactor;
-      }
-    }
-
-    for (const { dc, dr } of knightOffsets) {
-      const nc = col + dc;
-      const nr = row + dr;
-      if (isInsideBoard({ col: nc, row: nr }, cols, rows)) {
-        map[nc][nr][sideIdx] += knightFactor;
       }
     }
 
@@ -184,16 +133,24 @@ export function getNearestEnemyPiece(
 
   const candidates = controllingPieces.length > 0 ? controllingPieces : enemyPieces;
 
-  let nearest: Piece | null = null;
+  let minCandidates: Piece[] = [];
   let minDist = Infinity;
 
   for (const piece of candidates) {
     const dist = Math.hypot(piece.cell.col - cell.col, piece.cell.row - cell.row);
-    if (dist < minDist) {
+    if (Math.abs(dist - minDist) < 0.001) {
+      minCandidates.push(piece);
+    } else if (dist < minDist) {
       minDist = dist;
-      nearest = piece;
+      minCandidates = [piece];
     }
   }
 
-  return nearest;
+  if (minCandidates.length === 0) return null;
+  minCandidates.sort((a, b) => {
+    if (Math.abs(b.energy - a.energy) > 0.01) return b.energy - a.energy;
+    return Math.abs(a.cell.col - 5) - Math.abs(b.cell.col - 5);
+  });
+
+  return minCandidates[0];
 }

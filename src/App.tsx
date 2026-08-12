@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Compass,
   AlertOctagon,
+  ShieldAlert,
   GraduationCap,
 } from 'lucide-react';
 
@@ -40,10 +41,33 @@ export const App: React.FC = () => {
   const [isAutoPlayAI, setIsAutoPlayAI] = useState<boolean>(false);
   const [recentFoulNotice, setRecentFoulNotice] = useState<string | null>(null);
   const [targetingCard, setTargetingCard] = useState<any | null>(null);
+  const [captainAttemptPopup, setCaptainAttemptPopup] = useState<{
+    side: 'PLAYER' | 'AI';
+    targetCaptainId: string;
+    throwerId: string;
+    outcome: 'GOAL' | 'INTERCEPTED' | 'INCOMPLETE';
+    interceptedById?: string;
+    playerScore: number;
+    aiScore: number;
+  } | null>(null);
 
-  const [state, dispatch] = useReducer(gameReducer, createInitialState(initialSeed));
+  const [state, dispatch] = useReducer(
+    gameReducer,
+    createInitialState(initialSeed, {
+      ai: {
+        aiEngineMode: 'EPSILON_GREEDY_NN',
+        playerEngineMode: 'EPSILON_GREEDY_NN',
+        defaultEngineMode: 'EPSILON_GREEDY_NN',
+        epsilonExploitRate: 0.75,
+      },
+    })
+  );
   const prevEventCountRef = useRef<number>(state.eventLog.length);
   const boardContainerRef = useRef<HTMLDivElement>(null);
+
+  const stagedCardIds = new Set((state.plannedCards || []).map(pc => pc.cardId));
+  const effectivePlayerHandCount = state.hands.PLAYER.filter(c => !stagedCardIds.has(c.id)).length;
+  const isPlayerOverHandLimit = effectivePlayerHandCount > state.config.momentum.handLimit;
 
   // Prime & unlock AudioContext on user interaction across the browser session
   useEffect(() => {
@@ -71,7 +95,9 @@ export const App: React.FC = () => {
     });
     // Smoothly scroll directly onto the Board UI interface upon match start
     setTimeout(() => {
-      boardContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (boardContainerRef.current && typeof boardContainerRef.current.scrollIntoView === 'function') {
+        boardContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }, 50);
   };
 
@@ -80,7 +106,9 @@ export const App: React.FC = () => {
     dispatch({ type: 'START_PLAYER_TURN' });
     // Smoothly scroll onto the Board UI interface instead of scrolling to the bottom
     setTimeout(() => {
-      boardContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (boardContainerRef.current && typeof boardContainerRef.current.scrollIntoView === 'function') {
+        boardContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }, 50);
   };
 
@@ -98,8 +126,6 @@ export const App: React.FC = () => {
             `⚠️ REFEREE WHISTLE: Holding foul on ${ev.details.foulPieceId || 'Carrier'}. Turnover to Opponent!`
           );
           setTimeout(() => setRecentFoulNotice(null), 5000);
-        } else if (ev.type === 'SCORE_GOAL') {
-          soundEngine.playGoal();
         } else if (ev.type === 'PASS_INTERCEPTED') {
           soundEngine.playIntercepted();
           const defender = ev.details.interceptedByPieceId ? ev.details.interceptedByPieceId.replace('ai_', 'A').replace('p_', 'P') : 'Defender';
@@ -107,6 +133,44 @@ export const App: React.FC = () => {
           setRecentFoulNotice(`🛡️ INTERCEPTION! Pass snatched by ${defender}${cell}! Defender lunges to ball and takes possession.`);
           setTimeout(() => setRecentFoulNotice(null), 4500);
         }
+      }
+
+      // Check if any throw attempt was made targeting either Captain, or if a goal was scored
+      const captainAttempt = newEvents.find(
+        e =>
+          e.type === 'PASS_ATTEMPTED' &&
+          (e.details?.targetPieceId === 'p_captain' || e.details?.targetPieceId === 'ai_captain')
+      );
+      const goalEvent = newEvents.find(e => e.type === 'SCORE_GOAL');
+      const interceptEvent = newEvents.find(e => e.type === 'PASS_INTERCEPTED');
+
+      if (captainAttempt || goalEvent) {
+        const side = (goalEvent?.side || captainAttempt?.side || 'PLAYER') as 'PLAYER' | 'AI';
+        const targetCaptainId =
+          captainAttempt?.details?.targetPieceId || (side === 'PLAYER' ? 'p_captain' : 'ai_captain');
+        const throwerId = captainAttempt?.details?.throwerId || 'Carrier';
+        let outcome: 'GOAL' | 'INTERCEPTED' | 'INCOMPLETE' = 'INCOMPLETE';
+        let interceptedById: string | undefined = undefined;
+
+        if (goalEvent) {
+          outcome = 'GOAL';
+          soundEngine.playGoal();
+        } else if (interceptEvent) {
+          outcome = 'INTERCEPTED';
+          interceptedById = interceptEvent.details?.interceptedByPieceId;
+        } else {
+          outcome = 'INCOMPLETE';
+        }
+
+        setCaptainAttemptPopup({
+          side,
+          targetCaptainId,
+          throwerId,
+          outcome,
+          interceptedById,
+          playerScore: goalEvent?.details?.playerScore ?? state.score.PLAYER,
+          aiScore: goalEvent?.details?.aiScore ?? state.score.AI,
+        });
       }
     }
   }, [state.eventLog]);
@@ -149,8 +213,8 @@ export const App: React.FC = () => {
     setInitialSeed(s);
     setSeedInput(s.toString());
     setRecentFoulNotice(null);
-    dispatch({ type: 'INIT_MATCH', seed: s });
-  }, [seedInput]);
+    dispatch({ type: 'INIT_MATCH', seed: s, configOverrides: state.config });
+  }, [seedInput, state.config]);
 
   const handleApplyConfig = (newConfig: GameConfig) => {
     dispatch({ type: 'INIT_MATCH', seed: state.seed, configOverrides: newConfig });
@@ -356,6 +420,7 @@ export const App: React.FC = () => {
               <TurnTimer
                 remainingSeconds={state.timer.remainingSeconds}
                 maxSeconds={state.config.timing.turnTimerSeconds}
+                isPaused={isTutorialOpen || isHelpOpen || isConfigOpen || !!captainAttemptPopup}
                 onTimeExpired={() => {}}
                 onTick={s => dispatch({ type: 'TIMER_TICK', secondsElapsed: s })}
               />
@@ -445,16 +510,16 @@ export const App: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              {state.hands.PLAYER.length > state.config.momentum.handLimit && (
+              {isPlayerOverHandLimit && (
                 <div className="p-2.5 rounded-xl bg-amber-200 border-2 border-amber-800 text-amber-950 text-xs font-serif flex items-center gap-2 animate-bounce">
                   <AlertTriangle className="w-4 h-4 text-amber-800 flex-shrink-0" />
-                  <span>Hand limit: {state.hands.PLAYER.length}/{state.config.momentum.handLimit}. Deploy or discard 1 card to commit turn.</span>
+                  <span>Hand limit: {effectivePlayerHandCount}/{state.config.momentum.handLimit}. Deploy or discard 1 card to commit turn.</span>
                 </div>
               )}
 
               <button
                 data-testid="commit-turn-button"
-                disabled={state.phase !== 'PLAYER_PLAN' || state.hands.PLAYER.length > state.config.momentum.handLimit}
+                disabled={state.phase !== 'PLAYER_PLAN' || isPlayerOverHandLimit}
                 onClick={() => {
                   const carrier = state.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
                   if (carrier && !state.plannedThrow) {
@@ -466,7 +531,7 @@ export const App: React.FC = () => {
                   dispatch({ type: 'END_PLAYER_TURN' });
                 }}
                 className={`w-full py-3 px-4 rounded-xl text-white font-serif font-black text-sm shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all border-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                  state.hands.PLAYER.length > state.config.momentum.handLimit
+                  isPlayerOverHandLimit
                     ? 'bg-amber-600 cursor-not-allowed text-amber-950 border-amber-900'
                     : state.timer.isExpired
                     ? 'bg-rose-600 hover:bg-rose-500 border-rose-950 shadow-rose-900/40 ring-2 ring-rose-400 animate-pulse'
@@ -474,8 +539,8 @@ export const App: React.FC = () => {
                 }`}
               >
                 <span>
-                  {state.hands.PLAYER.length > state.config.momentum.handLimit
-                    ? `Discard a Card to End Turn (${state.hands.PLAYER.length}/3)`
+                  {isPlayerOverHandLimit
+                    ? `Discard a Card to End Turn (${effectivePlayerHandCount}/3)`
                     : 'Commit & End Player Turn'}
                 </span>
                 <ArrowRight className="w-4 h-4" />
@@ -496,6 +561,7 @@ export const App: React.FC = () => {
             isThinking={state.phase === 'AI_TURN'}
             posture={state.aiStatus.selectedPosture}
             tier={state.config.mcts.tier}
+            engineMode={state.config.ai?.aiEngineMode || state.config.ai?.defaultEngineMode || 'NN_ACTIVE'}
             adaptiveTelemetry={{
               lastHumanLatencyMs: state.aiStatus.lastHumanLatencyMs,
               humanUsedSeconds: state.aiStatus.humanUsedSeconds,
@@ -532,6 +598,89 @@ export const App: React.FC = () => {
           eventLog={state.eventLog}
           onRestartMatch={handleRestartMatch}
         />
+      )}
+
+      {/* Captain Attempt & Goal Scored Notification Modal */}
+      {captainAttemptPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn font-serif">
+          <div className="w-full max-w-md parchment-card rounded-3xl p-6 sm:p-7 shadow-2xl border-4 border-[#5c3a1e] space-y-4 text-center animate-bounceIn">
+            <div className={`inline-flex p-3 rounded-full border-2 mb-1 ${
+              captainAttemptPopup.outcome === 'GOAL'
+                ? 'bg-amber-400/20 border-amber-500'
+                : captainAttemptPopup.outcome === 'INTERCEPTED'
+                ? 'bg-rose-500/20 border-rose-600'
+                : 'bg-amber-500/20 border-amber-600'
+            }`}>
+              {captainAttemptPopup.outcome === 'GOAL' && (
+                <Trophy className="w-10 h-10 text-amber-600 animate-pulse" />
+              )}
+              {captainAttemptPopup.outcome === 'INTERCEPTED' && (
+                <ShieldAlert className="w-10 h-10 text-rose-600 animate-pulse" />
+              )}
+              {captainAttemptPopup.outcome === 'INCOMPLETE' && (
+                <AlertTriangle className="w-10 h-10 text-amber-700 animate-pulse" />
+              )}
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-black text-amber-950 uppercase tracking-wide">
+              {captainAttemptPopup.outcome === 'GOAL'
+                ? captainAttemptPopup.side === 'PLAYER'
+                  ? '🏆 GOAL SCORED! 🏆'
+                  : '⚠️ OPPONENT SCORED! ⚠️'
+                : captainAttemptPopup.outcome === 'INTERCEPTED'
+                ? captainAttemptPopup.side === 'PLAYER'
+                  ? '🛡️ CAPTAIN THROW INTERCEPTED! 🛡️'
+                  : '🛡️ OPPONENT STRIKE INTERCEPTED! 🛡️'
+                : captainAttemptPopup.side === 'PLAYER'
+                ? '⚠️ CAPTAIN THROW DEFLECTED! ⚠️'
+                : '⚠️ OPPONENT STRIKE INCOMPLETE! ⚠️'}
+            </h2>
+
+            <div className="text-xs font-mono font-black tracking-widest uppercase mb-1">
+              {captainAttemptPopup.outcome === 'GOAL' && (
+                <span className="text-emerald-800">STRIKE ON CAPTAIN SUCCESSFUL (+1 POINT)</span>
+              )}
+              {captainAttemptPopup.outcome === 'INTERCEPTED' && (
+                <span className="text-rose-800">STRIKE ON CAPTAIN DENIED BY DEFENSE</span>
+              )}
+              {captainAttemptPopup.outcome === 'INCOMPLETE' && (
+                <span className="text-amber-800">STRIKE ON CAPTAIN DEFLECTED / MISSED</span>
+              )}
+            </div>
+
+            <div className="bg-amber-100/80 border-2 border-[#8b5a2b]/40 rounded-2xl p-3 font-bold text-amber-950">
+              <div className="text-sm uppercase tracking-wider text-amber-800 mb-1">Current Score</div>
+              <div className="text-2xl sm:text-3xl font-black">
+                PLAYER {captainAttemptPopup.playerScore} - {captainAttemptPopup.aiScore} AI
+              </div>
+            </div>
+
+            <p className="text-sm sm:text-base text-amber-950 font-bold leading-relaxed">
+              {captainAttemptPopup.outcome === 'GOAL'
+                ? captainAttemptPopup.side === 'PLAYER'
+                  ? "Your team threw to the Captain and scored! Under Capten restart rules, possession of the ball is immediately awarded to the opposing AI team."
+                  : "The AI team threw to the Captain and scored! Under Capten restart rules, possession of the ball is immediately awarded to your team."
+                : captainAttemptPopup.outcome === 'INTERCEPTED'
+                ? captainAttemptPopup.side === 'PLAYER'
+                  ? `Your team attempted a scoring throw at P.captain, but it was intercepted by ${
+                      captainAttemptPopup.interceptedById
+                        ? captainAttemptPopup.interceptedById.replace('ai_', 'A').replace('p_', 'P')
+                        : 'the defense'
+                    }! No goal was scored, and possession turns over to the defending piece.`
+                  : "The AI team attempted a scoring throw at A.captain, but your defense intercepted the trajectory! No goal was scored, and your team takes possession."
+                : captainAttemptPopup.side === 'PLAYER'
+                ? "Your team attempted a scoring throw at P.captain, but the catch was contested and incomplete! No goal was scored."
+                : "The AI team attempted a scoring throw at A.captain, but the catch was incomplete! No goal was scored."}
+            </p>
+
+            <button
+              onClick={() => setCaptainAttemptPopup(null)}
+              className="w-full py-3.5 px-6 rounded-2xl bg-[#7c4d24] hover:bg-[#8b5a2b] text-[#f4edd0] font-black text-sm tracking-wider uppercase shadow-lg border-2 border-[#5c3a1e] active:scale-95 transition-all cursor-pointer"
+            >
+              Continue Match
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Config Tuner */}

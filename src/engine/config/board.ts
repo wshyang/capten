@@ -18,8 +18,8 @@ export const BOARD_CONFIG = {
     { id: 'p_1', isCaptain: false, isBlocker: false, height: 0, cell: { col: 5, row: 4 } }, // Center line player!
     { id: 'p_2', isCaptain: false, isBlocker: false, height: 0, cell: { col: 2, row: 3 } },
     { id: 'p_3', isCaptain: false, isBlocker: false, height: 0, cell: { col: 8, row: 3 } },
-    { id: 'p_4', isCaptain: false, isBlocker: false, height: 0, cell: { col: 8, row: 2 } },
-    { id: 'p_5', isCaptain: false, isBlocker: false, height: 0, cell: { col: 2, row: 2 } },
+    { id: 'p_4', isCaptain: false, isBlocker: false, height: 0, cell: { col: 7, row: 2 } },
+    { id: 'p_5', isCaptain: false, isBlocker: false, height: 0, cell: { col: 3, row: 2 } },
     { id: 'p_blocker', isCaptain: false, isBlocker: true, height: 0, cell: { col: 5, row: 1 } }, // Designated Blocker inside AI Captain circle!
   ],
 
@@ -30,8 +30,8 @@ export const BOARD_CONFIG = {
     { id: 'ai_1', isCaptain: false, isBlocker: false, height: 0, cell: { col: 5, row: 6 } }, // Center line player!
     { id: 'ai_2', isCaptain: false, isBlocker: false, height: 0, cell: { col: 2, row: 7 } },
     { id: 'ai_3', isCaptain: false, isBlocker: false, height: 0, cell: { col: 8, row: 7 } },
-    { id: 'ai_4', isCaptain: false, isBlocker: false, height: 0, cell: { col: 2, row: 8 } },
-    { id: 'ai_5', isCaptain: false, isBlocker: false, height: 0, cell: { col: 8, row: 8 } },
+    { id: 'ai_4', isCaptain: false, isBlocker: false, height: 0, cell: { col: 7, row: 8 } },
+    { id: 'ai_5', isCaptain: false, isBlocker: false, height: 0, cell: { col: 3, row: 8 } },
     { id: 'ai_blocker', isCaptain: false, isBlocker: true, height: 0, cell: { col: 5, row: 9 } }, // Designated Blocker inside Player Captain circle!
   ],
 
@@ -111,7 +111,10 @@ export function findNearestUnoccupiedCell(
       if (Math.abs(a.distToTarget - b.distToTarget) > 0.01) {
         return a.distToTarget - b.distToTarget;
       }
-      return a.distToFrom - b.distToFrom;
+      if (Math.abs(a.distToFrom - b.distToFrom) > 0.01) {
+        return a.distToFrom - b.distToFrom;
+      }
+      return Math.abs(a.cell.row - 5) - Math.abs(b.cell.row - 5);
     });
     return candidates[0].cell;
   }
@@ -136,18 +139,19 @@ export function findNearestGoalLineCell(
 
   for (let offset = 1; offset < cols; offset++) {
     const leftCol = preferredCol - offset;
-    if (leftCol >= 0) {
-      const leftCell = { col: leftCol, row: targetRow };
-      if (!pieces.some(p => areCellsEqual(p.cell, leftCell))) {
-        return leftCell;
-      }
-    }
     const rightCol = preferredCol + offset;
-    if (rightCol < cols) {
-      const rightCell = { col: rightCol, row: targetRow };
-      if (!pieces.some(p => areCellsEqual(p.cell, rightCell))) {
-        return rightCell;
-      }
+    const leftFree = leftCol >= 0 && !pieces.some(p => areCellsEqual(p.cell, { col: leftCol, row: targetRow }));
+    const rightFree = rightCol < cols && !pieces.some(p => areCellsEqual(p.cell, { col: rightCol, row: targetRow }));
+    if (leftFree && rightFree) {
+      return Math.abs(leftCol - 5) <= Math.abs(rightCol - 5)
+        ? { col: leftCol, row: targetRow }
+        : { col: rightCol, row: targetRow };
+    }
+    if (leftFree) {
+      return { col: leftCol, row: targetRow };
+    }
+    if (rightFree) {
+      return { col: rightCol, row: targetRow };
     }
   }
 
@@ -199,7 +203,10 @@ export function findNearestDefenseCircleCell(
   }
 
   if (candidates.length > 0) {
-    candidates.sort((a, b) => a.dist - b.dist);
+    candidates.sort((a, b) => {
+      if (Math.abs(a.dist - b.dist) > 0.001) return a.dist - b.dist;
+      return Math.abs(a.cell.row - 5) - Math.abs(b.cell.row - 5);
+    });
     return candidates[0].cell;
   }
 

@@ -79,7 +79,9 @@ export const Hand: React.FC<HandProps> = ({
   const maxMomentum = state.config.momentum.maxMomentum;
   const handLimit = state.config.momentum.handLimit;
   const alreadyPlayed = state.cardPlayedThisTurn[side] && (!state.plannedCards || state.plannedCards.length === 0);
-  const isOverHandLimit = hand.length > handLimit;
+  const stagedCardIds = new Set((state.plannedCards || []).map(pc => pc.cardId));
+  const effectiveHandCount = hand.filter(c => !stagedCardIds.has(c.id)).length;
+  const isOverHandLimit = effectiveHandCount > handLimit;
   const isTimerExpired = state.timer.isExpired;
 
   const playerPieces = state.pieces.filter(p => p.side === 'PLAYER');
@@ -167,7 +169,7 @@ export const Hand: React.FC<HandProps> = ({
               isOverHandLimit ? 'bg-amber-200 text-amber-950 border-amber-800 font-black animate-bounce' : 'bg-amber-100 border-amber-700/60'
             }`}
           >
-            Hand: {hand.length}/{handLimit}
+            Hand: {effectiveHandCount}/{handLimit}
           </span>
           <span>•</span>
           <span className="text-[11px]">+1/turn</span>
@@ -179,7 +181,7 @@ export const Hand: React.FC<HandProps> = ({
         <div className="p-2 rounded-xl bg-amber-200 border-2 border-amber-800 text-amber-950 text-xs flex items-center gap-2 animate-fadeIn shadow-sm">
           <AlertCircle className="w-4 h-4 text-amber-800 flex-shrink-0 animate-bounce" />
           <span className="text-[11px]">
-            <strong>{isTimerExpired ? 'DISCARD TO COMMIT:' : 'DRAW PHASE:'}</strong> Hand is at {hand.length}/{handLimit}. Click <strong>Discard</strong> to proceed.
+            <strong>{isTimerExpired ? 'DISCARD TO COMMIT:' : 'DRAW PHASE:'}</strong> Hand is at {effectiveHandCount}/{handLimit}. Click <strong>Discard</strong> to proceed.
           </span>
         </div>
       ) : (

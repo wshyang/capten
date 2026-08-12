@@ -254,19 +254,22 @@ export function resolveThrow(
   const postThrowEnergy = preview.postThrowEnergy;
   const preThrowEnergy = preview.preThrowEnergy;
 
+  const contestedMisses: Array<{ pieceId: string; cell: Cell; energyAfterMove: number }> = [];
+  const attemptedInterceptors = new Set<string>();
+
   // 1. Check in-flight interception across path cells
   if (!preview.isClean && !preview.isNoLookPass) {
     let skippedFirst = false;
 
     for (const check of preview.pathCells) {
-      let pCell = check.captureProbability;
+      let fEffective = check.effectiveControl ?? check.enemyControlFactor;
 
       if (temporaryState?.threadedPassActive?.[thrower.side] && !skippedFirst && check.enemyControlFactor > 0) {
         skippedFirst = true;
-        pCell = 0;
+        fEffective = 0;
       }
 
-      if (pCell <= 0) {
+      if (fEffective <= 0 || !check.nearestEnemyPieceId || attemptedInterceptors.has(check.nearestEnemyPieceId)) {
         rollValues.push({
           cell: check.cell,
           roll: 1.0,
@@ -274,24 +277,78 @@ export function resolveThrow(
           intercepted: false,
           defPieceId: check.nearestEnemyPieceId || null,
           defEnergy: check.nearestEnemyEnergy,
-          fEffective: check.effectiveControl ?? check.enemyControlFactor,
+          fEffective,
           clearRelief: check.clearRelief ?? 0,
           throwerEnergy: preThrowEnergy,
         });
         continue;
       }
 
-      const roll = rng.nextFloat();
-      const isInterceptedHere = roll < pCell;
+      const candidateDef = pieces.find(p => p.id === check.nearestEnemyPieceId);
+      if (candidateDef) {
+        const currentDist = Math.hypot(candidateDef.cell.col - check.cell.col, candidateDef.cell.row - check.cell.row);
+        const idxInPath = preview.pathCells.indexOf(check);
+        const hasCloserLaterCell = preview.pathCells.slice(idxInPath + 1).some(
+          laterCheck => Math.hypot(candidateDef.cell.col - laterCheck.cell.col, candidateDef.cell.row - laterCheck.cell.row) < currentDist - 0.01
+        );
+        if (hasCloserLaterCell) {
+          rollValues.push({
+            cell: check.cell,
+            roll: 1.0,
+            pCell: 0,
+            intercepted: false,
+            defPieceId: check.nearestEnemyPieceId || null,
+            defEnergy: check.nearestEnemyEnergy,
+            fEffective,
+            clearRelief: check.clearRelief ?? 0,
+            throwerEnergy: preThrowEnergy,
+          });
+          continue;
+        }
+      }
+
+      // Stage 1: AoC shading probability of moving over to the intercept cell
+      const pMove = Math.min(1.0, Math.max(0.0, fEffective));
+      const moveRoll = rng.nextFloat();
+      const movedToCell = !isRestartPass && moveRoll < pMove;
+
+      if (!movedToCell) {
+        rollValues.push({
+          cell: check.cell,
+          roll: moveRoll,
+          pCell: pMove,
+          intercepted: false,
+          defPieceId: check.nearestEnemyPieceId || null,
+          defEnergy: check.nearestEnemyEnergy,
+          fEffective,
+          clearRelief: check.clearRelief ?? 0,
+          throwerEnergy: preThrowEnergy,
+        });
+        continue;
+      }
+
+      attemptedInterceptors.add(check.nearestEnemyPieceId!);
+
+      // Defender moved to intercept cell: calculate movement energy cost and arrived energy
+      const defPiece = pieces.find(p => p.id === check.nearestEnemyPieceId);
+      const moveCost = defPiece ? Math.hypot(defPiece.cell.col - check.cell.col, defPiece.cell.row - check.cell.row) : 0;
+      const arrivedDefEnergy = Math.max(0, check.nearestEnemyEnergy - moveCost);
+
+      // Stage 2: 1:1 energy ratio evaluation between arrived energy and thrower escape velocity
+      const pCatch = (arrivedDefEnergy > 0 || preThrowEnergy > 0)
+        ? (arrivedDefEnergy / (arrivedDefEnergy + preThrowEnergy))
+        : 0;
+      const catchRoll = rng.nextFloat();
+      const isInterceptedHere = catchRoll < pCatch;
 
       rollValues.push({
         cell: check.cell,
-        roll,
-        pCell,
+        roll: catchRoll,
+        pCell: pCatch,
         intercepted: isInterceptedHere,
         defPieceId: check.nearestEnemyPieceId || null,
-        defEnergy: check.nearestEnemyEnergy,
-        fEffective: check.effectiveControl ?? check.enemyControlFactor,
+        defEnergy: arrivedDefEnergy,
+        fEffective,
         clearRelief: check.clearRelief ?? 0,
         throwerEnergy: preThrowEnergy,
       });
@@ -312,12 +369,21 @@ export function resolveThrow(
           intercepted: true,
           interceptedAtCell: check.cell,
           interceptedByPieceId: check.nearestEnemyPieceId || undefined,
+          interceptorArrivedEnergy: arrivedDefEnergy,
+          contestedMisses,
           catchRoll: 1.0,
           catchSuccess: false,
           scored: false,
           rollValues,
           refunded: false,
         };
+      } else {
+        // Defender gambled and missed: record relocation to interception cell
+        contestedMisses.push({
+          pieceId: check.nearestEnemyPieceId!,
+          cell: check.cell,
+          energyAfterMove: arrivedDefEnergy,
+        });
       }
     }
   }
@@ -342,6 +408,7 @@ export function resolveThrow(
       postThrowEnergy: preview.isClean ? thrower.energy : postThrowEnergy,
       preThrowEnergy,
       intercepted: false,
+      contestedMisses,
       catchRoll,
       catchSuccess: true,
       scored,
@@ -383,6 +450,7 @@ export function resolveThrow(
     missedCatchType: missedCatchResult.type,
     ballRestCell: missedCatchResult.landingCell,
     ballHolderId: missedCatchResult.ballHolderId,
+    contestedMisses,
     rollValues,
     refunded: false,
   };
@@ -444,7 +512,8 @@ export function resolveMissedCatch(
           const dA = Math.hypot(a.cell.col - exitCell.col, a.cell.row - exitCell.row);
           const dB = Math.hypot(b.cell.col - exitCell.col, b.cell.row - exitCell.row);
           if (Math.abs(dA - dB) > 0.01) return dA - dB;
-          return b.energy - a.energy;
+          if (Math.abs(b.energy - a.energy) > 0.01) return b.energy - a.energy;
+          return Math.abs(a.cell.col - 5) - Math.abs(b.cell.col - 5);
         });
 
         const throwInPiece = eligibleOpponents[0];
@@ -463,8 +532,12 @@ export function resolveMissedCatch(
 
       // Overlap Contest (§8.4) if both sides project control
       if (playerControl > 0 && aiControl > 0) {
-        const playerPiecesNear = pieces.filter(p => p.side === 'PLAYER' && Math.hypot(p.cell.col - nextCell.col, p.cell.row - nextCell.row) <= 1.5);
-        const aiPiecesNear = pieces.filter(p => p.side === 'AI' && Math.hypot(p.cell.col - nextCell.col, p.cell.row - nextCell.row) <= 1.5);
+        const playerPiecesNear = pieces
+          .filter(p => p.side === 'PLAYER' && Math.hypot(p.cell.col - nextCell.col, p.cell.row - nextCell.row) <= 1.5)
+          .sort((a, b) => b.energy - a.energy);
+        const aiPiecesNear = pieces
+          .filter(p => p.side === 'AI' && Math.hypot(p.cell.col - nextCell.col, p.cell.row - nextCell.row) <= 1.5)
+          .sort((a, b) => b.energy - a.energy);
 
         const wPlayer = playerControl * (playerPiecesNear[0]?.energy || 5.0);
         const wAI = aiControl * (aiPiecesNear[0]?.energy || 5.0);
@@ -487,7 +560,9 @@ export function resolveMissedCatch(
       }
 
       // Single controlling side
-      const controllingSide: Side | null = playerControl > 0 ? 'PLAYER' : aiControl > 0 ? 'AI' : null;
+      const controllingSide: Side | null = playerControl > 0 && aiControl > 0
+        ? (playerControl > aiControl ? 'PLAYER' : aiControl > playerControl ? 'AI' : (rng.nextFloat() < 0.5 ? 'PLAYER' : 'AI'))
+        : (playerControl > 0 ? 'PLAYER' : aiControl > 0 ? 'AI' : null);
       if (controllingSide) {
         const factor = controllingSide === 'PLAYER' ? playerControl : aiControl;
         const nearest = getNearestEnemyPiece(pieces, nextCell, controllingSide === 'PLAYER' ? 'AI' : 'PLAYER') ||
@@ -573,7 +648,9 @@ export function resolveMissedCatch(
         };
       } else {
         // UNCONTESTED: Nearer champion takes it
-        const nearerChamp = dPlayer <= dAI ? champPlayer : champAI;
+        const nearerChamp = Math.abs(dPlayer - dAI) < 0.001
+          ? (rng.nextFloat() < 0.5 ? champPlayer : champAI)
+          : (dPlayer < dAI ? champPlayer : champAI);
         return {
           type: 'UNDERSHOOT',
           landingCell,

@@ -16,13 +16,7 @@ const REF_750: MCTSTierConfig = {
   explorationConstant: 1.414, label: 'd4@750', description: 'ref',
 };
 
-function makeTier(iters: number): MCTSTierConfig {
-  return {
-    tier: 'CUSTOM', iterations: iters, rolloutDepth: 4,
-    ismctsSamples: Math.max(1, Math.min(8, Math.round(iters / 50))),
-    explorationConstant: 1.414, label: `d4@${iters}`, description: `${iters} iters`,
-  };
-}
+
 
 function runGame(seed: number, cTier: MCTSTierConfig, rTier: MCTSTierConfig, cAsP: boolean, maxT: number) {
   const init = createInitialState(seed);

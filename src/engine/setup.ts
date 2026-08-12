@@ -62,6 +62,13 @@ export const DEFAULT_CONFIG: GameConfig = {
     explorationConstant: 1.414,
     weights: MCTS_EVALUATION_WEIGHTS,
   },
+  ai: {
+    defaultEngineMode: 'EPSILON_GREEDY_NN',
+    playerEngineMode: 'EPSILON_GREEDY_NN',
+    aiEngineMode: 'EPSILON_GREEDY_NN',
+    nnModelSize: '64',
+    epsilonExploitRate: 0.75,
+  },
 };
 
 export function createInitialState(seed = 4242, overrides?: Partial<GameConfig>): GameState {
@@ -75,6 +82,7 @@ export function createInitialState(seed = 4242, overrides?: Partial<GameConfig>)
     interception: { ...DEFAULT_CONFIG.interception, ...overrides?.interception },
     timing: { ...DEFAULT_CONFIG.timing, ...overrides?.timing },
     mcts: { ...DEFAULT_CONFIG.mcts, ...overrides?.mcts },
+    ai: { ...DEFAULT_CONFIG.ai, ...overrides?.ai },
   };
 
   const rng = createRNG(seed);
