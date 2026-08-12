@@ -140,13 +140,13 @@ export const ConfigTuner: React.FC<ConfigTunerProps> = ({
             {[
               {
                 mode: 'NN_ACTIVE' as const,
-                title: 'NN_ACTIVE (ResNet CNN)',
-                desc: 'Reigning ResNet CNN Champion. Direct policy/value evaluation without tree search.',
+                title: 'NN_ACTIVE (Neural Net)',
+                desc: 'Direct policy/value evaluation without tree search.',
               },
               {
                 mode: 'EPSILON_GREEDY_NN' as const,
                 title: 'EPSILON GREEDY NN (75%)',
-                desc: 'NN Champion with configurable greedy policy & random exploration. Prevents static gridlocks.',
+                desc: 'Neural net with configurable greedy policy & random exploration. Prevents static gridlocks.',
               },
               {
                 mode: 'MCTS_ONLY' as const,
@@ -194,7 +194,7 @@ export const ConfigTuner: React.FC<ConfigTunerProps> = ({
                 <h3 className="font-black text-xs sm:text-sm text-blue-950 uppercase tracking-wide">
                   {localEngineMode === 'EPSILON_GREEDY_NN'
                     ? 'Epsilon Greedy NN (75%) Active'
-                    : 'Reigning ResNet CNN Champion Active'}
+                    : 'Neural Network Opponent Active'}
                 </h3>
               </div>
               <span className="text-[10px] font-mono font-black bg-blue-200 border border-blue-800 text-blue-950 px-2.5 py-0.5 rounded-full">
@@ -211,16 +211,16 @@ export const ConfigTuner: React.FC<ConfigTunerProps> = ({
                 {[
                   {
                     size: '64' as const,
-                    title: '64-LAYER RESNET (DEFAULT)',
-                    badge: 'DEFAULT • 788K PARAMS',
-                    desc: 'Extended 64-channel ResNet with full 32..63 tactical reachability grids, distance gradients & card broadcasts.',
+                    title: '64-LAYER (DEFAULT)',
+                    badge: 'DEFAULT',
+                    desc: 'Extended model with richer spatial features.',
                     latency: '~15ms Turn Latency',
                   },
                   {
                     size: '32' as const,
-                    title: '32-LAYER RESNET (LEGACY)',
-                    badge: 'LEGACY • 386K PARAMS',
-                    desc: 'Original lightweight 32-channel ResNet champion checkpoint (supreme_champion.json).',
+                    title: '32-LAYER (LEGACY)',
+                    badge: 'LEGACY',
+                    desc: 'Lightweight model, lower turn latency.',
                     latency: '~8ms Turn Latency',
                   },
                 ].map(model => {
@@ -290,10 +290,10 @@ export const ConfigTuner: React.FC<ConfigTunerProps> = ({
               </div>
 
               <div className="bg-blue-50/90 p-2.5 rounded-xl border border-blue-700/40">
-                <div className="text-[10px] text-blue-800 uppercase">Evaluation Benchmark</div>
-                <div className="font-black text-emerald-800 mt-0.5">100.0% Win Rate vs d4@50</div>
+                <div className="text-[10px] text-blue-800 uppercase">Playstyle</div>
+                <div className="font-black mt-0.5">Adaptive, balanced</div>
                 <div className="text-[9px] text-blue-900 mt-0.5 font-normal">
-                  Proven across 16 symmetric home-and-away audit matches
+                  Trained via self-play; adjusts pressure to your tempo.
                 </div>
               </div>
             </div>

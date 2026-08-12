@@ -16,7 +16,7 @@ describe('jsdom: <ConfigTuner /> Component', () => {
       />
     );
 
-    expect(screen.getByText('NN_ACTIVE (ResNet CNN)')).toBeDefined();
+    expect(screen.getByText('NN_ACTIVE (Neural Net)')).toBeDefined();
     expect(screen.getByText('EPSILON GREEDY NN (75%)')).toBeDefined();
     expect(screen.getByText('MCTS_ONLY (Tree Search)')).toBeDefined();
   });
@@ -35,7 +35,7 @@ describe('jsdom: <ConfigTuner /> Component', () => {
     );
 
     // Click on NN_ACTIVE
-    const nnActiveCard = screen.getByText('NN_ACTIVE (ResNet CNN)');
+    const nnActiveCard = screen.getByText('NN_ACTIVE (Neural Net)');
     fireEvent.click(nnActiveCard);
 
     // Click Apply Config to Match
@@ -74,10 +74,10 @@ describe('jsdom: <ConfigTuner /> Component', () => {
       />
     );
 
-    expect(screen.getByText('64-LAYER RESNET (DEFAULT)')).toBeDefined();
-    expect(screen.getByText('32-LAYER RESNET (LEGACY)')).toBeDefined();
+    expect(screen.getByText('64-LAYER (DEFAULT)')).toBeDefined();
+    expect(screen.getByText('32-LAYER (LEGACY)')).toBeDefined();
 
-    const legacyCard = screen.getByText('32-LAYER RESNET (LEGACY)');
+    const legacyCard = screen.getByText('32-LAYER (LEGACY)');
     fireEvent.click(legacyCard);
 
     const applyBtn = screen.getByText('Apply Config to Match');

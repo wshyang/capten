@@ -9,7 +9,10 @@
     "test": "vitest run",
     "test:jsdom": "vitest run test/jsdom/",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "onnx:setup": "./scripts/setup_onnx_toolchain.sh",
+    "onnx:convert": "npx tsx scripts/convert_checkpoint_to_onnx.ts",
+    "onnx:verify": "npx tsx scripts/verify_onnx_parity.ts"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
@@ -33,9 +36,11 @@
     "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.5.4",
     "jsdom": "^30.0.1",
+    "onnxruntime-node": "^1.19.2",
     "oxlint": "^1.75.0",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.19.2",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vitest": "^4.1.10"

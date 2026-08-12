@@ -37,6 +37,7 @@ export const App: React.FC = () => {
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
   const [tutorialStepIndex, setTutorialStepIndex] = useState<number>(0);
+  const [showTutorialConfirm, setShowTutorialConfirm] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isAutoPlayAI, setIsAutoPlayAI] = useState<boolean>(false);
   const [recentFoulNotice, setRecentFoulNotice] = useState<string | null>(null);
@@ -222,10 +223,54 @@ export const App: React.FC = () => {
 
   const ballHolder = state.pieces.find(p => p.hasBall);
 
+  // A "game in progress" = not in JUMP_BALL AND not MATCH_OVER AND the player
+  // has actually started playing (past turn 1, has staged something, or a
+  // score has been recorded).
+  const isGameInProgress =
+    !state.jumpBall.active &&
+    !state.matchResult.isOver &&
+    (state.turn > 1 ||
+      state.score.PLAYER > 0 ||
+      state.score.AI > 0 ||
+      (state.plannedMoves && state.plannedMoves.length > 0) ||
+      !!state.plannedThrow ||
+      (state.plannedCards && state.plannedCards.length > 0));
+
+  // Enter the tutorial's dedicated sandbox environment: fresh deterministic
+  // seed AND auto-resolve the opening jump-ball so the picker modal never
+  // appears on top of the board the tutorial wants to highlight. The ball is
+  // placed on p_1 (PLAYER) so the ball-carrier steps light up the correct
+  // piece from the very first frame.
+  const enterTutorialEnvironment = useCallback(() => {
+    setShowTutorialConfirm(false);
+    const TUTORIAL_SEED = 424242;
+    setInitialSeed(TUTORIAL_SEED);
+    setSeedInput(TUTORIAL_SEED.toString());
+    setRecentFoulNotice(null);
+    setCaptainAttemptPopup(null);
+    setTargetingCard(null);
+    setIsAutoPlayAI(false);
+    dispatch({ type: 'INIT_MATCH', seed: TUTORIAL_SEED, configOverrides: state.config });
+    // Immediately resolve the jump-ball in the PLAYER's favour so we skip the
+    // full-screen JumpBall picker modal and land straight in PLAYER_PLAN.
+    dispatch({ type: 'JUMP_BALL_RELEASE', releaseMarginMs: 0, wonBy: 'PLAYER' });
+    setTutorialStepIndex(0);
+    setIsTutorialOpen(true);
+    soundEngine.playBlip(540, 0.05);
+  }, [state.config]);
+
+  const requestTutorial = useCallback(() => {
+    if (isGameInProgress) {
+      setShowTutorialConfirm(true);
+    } else {
+      enterTutorialEnvironment();
+    }
+  }, [isGameInProgress, enterTutorialEnvironment]);
+
   return (
     <div className="min-h-screen parchment-bg text-[#2c1810] flex flex-col items-center justify-between p-2 sm:p-4 selection:bg-amber-600 selection:text-white font-serif">
       {/* Top Navigation Bar - Aged Maritime Timber Header */}
-      <header className="w-full max-w-6xl parchment-card rounded-2xl px-4 py-3 shadow-2xl flex flex-wrap items-center justify-between gap-3 mb-3 border-2 border-[#8b5a2b]">
+      <header className="w-full max-w-[min(96rem,98vw)] parchment-card rounded-2xl px-4 py-3 shadow-2xl flex flex-wrap items-center justify-between gap-3 mb-3 border-2 border-[#8b5a2b]">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl wax-seal-gold flex items-center justify-center shadow-md">
             <Trophy className="w-5 h-5 text-amber-950 drop-shadow" />
@@ -265,10 +310,7 @@ export const App: React.FC = () => {
           {/* Tutorial Academy Button */}
           <button
             data-testid="btn-tutorial"
-            onClick={() => {
-              soundEngine.playBlip(540, 0.05);
-              setIsTutorialOpen(true);
-            }}
+            onClick={requestTutorial}
             title="Open Interactive Tutorial Academy"
             className="p-2 rounded-xl bg-amber-200 hover:bg-amber-300 text-amber-950 border-2 border-amber-800 flex items-center gap-1 text-xs font-black shadow-md ring-1 ring-amber-400 cursor-pointer"
           >
@@ -341,7 +383,7 @@ export const App: React.FC = () => {
 
       {/* Referee Foul Alert Notification Banner */}
       {recentFoulNotice && (
-        <div className="w-full max-w-6xl mb-3 p-3 rounded-2xl bg-rose-200 border-4 border-rose-700 shadow-2xl text-rose-950 text-xs font-serif font-black flex items-center justify-between gap-3 animate-bounce">
+        <div className="w-full max-w-[min(96rem,98vw)] mb-3 p-3 rounded-2xl bg-rose-200 border-4 border-rose-700 shadow-2xl text-rose-950 text-xs font-serif font-black flex items-center justify-between gap-3 animate-bounce">
           <div className="flex items-center gap-2">
             <AlertOctagon className="w-5 h-5 text-rose-700 animate-spin" />
             <span className="text-sm">{recentFoulNotice}</span>
@@ -356,7 +398,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Tactical Arena Content */}
-      <main className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-start">
+      <main className="w-full max-w-[min(96rem,98vw)] grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-start">
         {/* Board (Cols 1 to 8) */}
         <div ref={boardContainerRef} className="lg:col-span-8 flex flex-col items-center gap-3">
           {/* Goal Concession & Restart Thrower Selection Toolbar */}
@@ -733,6 +775,40 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      {/* Tutorial Entry Confirmation — appears when a game is in progress */}
+      {showTutorialConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn font-serif">
+          <div className="w-full max-w-md parchment-card rounded-3xl p-6 shadow-2xl border-4 border-[#5c3a1e] space-y-4 text-center">
+            <div className="inline-flex p-3 rounded-full border-2 mb-1 bg-amber-400/20 border-amber-600">
+              <GraduationCap className="w-10 h-10 text-amber-800" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-amber-950 uppercase tracking-wide">
+              End Current Match to Enter Tutorial?
+            </h2>
+            <p className="text-sm text-amber-950 leading-relaxed">
+              The tutorial runs in its own scripted training environment. Starting it will
+              <strong> end your current match</strong> (score {state.score.PLAYER}–{state.score.AI}, turn {state.turn})
+              and reset the board to the tutorial scenario. This cannot be undone.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                onClick={() => setShowTutorialConfirm(false)}
+                className="flex-1 py-2.5 px-4 rounded-2xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-sm border-2 border-amber-800 shadow active:scale-95 transition-all cursor-pointer"
+              >
+                Keep Playing
+              </button>
+              <button
+                onClick={enterTutorialEnvironment}
+                className="flex-1 py-2.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm border-2 border-emerald-950 shadow-md active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <GraduationCap className="w-4 h-4" />
+                End Match & Start Tutorial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Interactive Tutorial Academy Overlay */}
       <TutorialOverlay
         isOpen={isTutorialOpen}
@@ -741,6 +817,7 @@ export const App: React.FC = () => {
         onPrevStep={() => setTutorialStepIndex(prev => Math.max(prev - 1, 0))}
         onGoToStep={idx => setTutorialStepIndex(idx)}
         onClose={() => setIsTutorialOpen(false)}
+        gameState={state}
       />
     </div>
   );

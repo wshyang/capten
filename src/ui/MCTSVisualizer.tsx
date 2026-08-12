@@ -99,7 +99,7 @@ export const MCTSVisualizer: React.FC<MCTSVisualizerProps> = ({
           <Cpu className={`w-4 h-4 ${isThinking ? 'text-red-700 animate-spin' : 'text-amber-800'}`} />
           <span className="font-extrabold text-amber-950 tracking-wide">
             {isNNMode
-              ? '🧠 REIGNING 32-CH RESNET CNN CHAMPION'
+              ? '🧠 NEURAL NETWORK OPPONENT'
               : isThinking
               ? 'MCTS SEARCH IN PROGRESS...'
               : 'AI ADAPTIVE TREE SEARCH'}
@@ -112,7 +112,7 @@ export const MCTSVisualizer: React.FC<MCTSVisualizerProps> = ({
             ? 'bg-purple-200 border-purple-800 text-purple-950 ring-1 ring-purple-400'
             : 'bg-red-200 border-red-800 text-red-950'
         }`}>
-          {isNNMode ? 'RESNET CNN (NN_ACTIVE)' : `${adaptiveTelemetry?.adaptiveTier || tier} TIER`}
+          {isNNMode ? 'NN' : `${adaptiveTelemetry?.adaptiveTier || tier} TIER`}
         </span>
       </div>
 
@@ -135,10 +135,7 @@ export const MCTSVisualizer: React.FC<MCTSVisualizerProps> = ({
           <div className="flex items-center justify-between text-[10px] font-bold text-blue-950">
             <span className="flex items-center gap-1">
               <Flame className="w-3 h-3 text-blue-600" />
-              <span>Architecture: <strong>32-Ch Dual-Head ResNet</strong> (No BN)</span>
-            </span>
-            <span className="text-emerald-800 font-black">
-              🧠 100.0% Win Rate vs d4@50
+              <span>Dual-Head ResNet policy/value network</span>
             </span>
           </div>
         </div>

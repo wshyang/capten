@@ -338,14 +338,14 @@ export const Hand: React.FC<HandProps> = ({
                     data-testid={`deploy-card-btn-${card.id}`}
                     disabled={!canPlay}
                     onClick={() => handleCardClick(card)}
-                    className={`w-full py-1.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1 transition-all border-2 ${
+                    className={`w-full py-1.5 px-1.5 rounded-xl text-[10px] leading-tight font-black flex items-center justify-center gap-1 transition-all border-2 whitespace-nowrap ${
                       canPlay
                         ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-950 shadow-md active:scale-95 cursor-pointer'
                         : 'bg-amber-200/60 text-amber-900/50 border-amber-300 cursor-not-allowed'
                     }`}
                   >
-                    <Play className="w-3 h-3 fill-current" />
-                    <span>
+                    <Play className="w-2.5 h-2.5 fill-current flex-shrink-0" />
+                    <span className="truncate">
                       {isTimerExpired
                         ? 'LOCKED'
                         : alreadyPlayed

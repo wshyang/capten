@@ -2,6 +2,12 @@ node_modules/
 dist/
 *.tmp
 *.log
+
+# ONNX conversion toolchain (host-local Python venv + intermediate artefacts)
+.venv-onnx/
+tmp/tfjs_layers/
+tmp/keras/
+tmp/onnx_raw/
 checkpoints/base_*.json
 checkpoints/pop_*.json
 checkpoints/gen_*.json

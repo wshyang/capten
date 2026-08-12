@@ -17,18 +17,38 @@ describe('Tutorial Mode Curriculum & Testability (§12)', () => {
     });
   });
 
-  it('verifies curriculum progression: Grid/Captains -> Energy -> Move -> Possession -> Throw -> Cut -> AoC -> Baseline -> Rest -> Momentum -> Cards -> Fouls', () => {
-    expect(TUTORIAL_STEPS[0].title).toContain('Sand Court');
-    expect(TUTORIAL_STEPS[1].title).toContain('Energy Pool');
-    expect(TUTORIAL_STEPS[2].title).toContain('How to Move');
-    expect(TUTORIAL_STEPS[3].title).toContain('No Running');
-    expect(TUTORIAL_STEPS[4].title).toContain('How to Throw');
-    expect(TUTORIAL_STEPS[5].title).toContain('1-Step Receiver Cut');
-    expect(TUTORIAL_STEPS[6].title).toContain('Area-of-Control');
-    expect(TUTORIAL_STEPS[7].title).toContain('Baseline Restart');
-    expect(TUTORIAL_STEPS[8].title).toContain('Compounding Rest');
-    expect(TUTORIAL_STEPS[9].title).toContain('Momentum');
-    expect(TUTORIAL_STEPS[10].title).toContain('Card Targeting');
-    expect(TUTORIAL_STEPS[11].title).toContain('Holding Fouls');
+  it('verifies scripted walkthrough progression: Court -> Energy -> Select -> Stage cell -> Possession -> Throw -> Cut -> AoC -> Restart -> Rest -> Momentum -> Commit', () => {
+    // Each entry: [expected title substring, whether the step is a required click step]
+    const expected: Array<[string, boolean]> = [
+      ['Sand Court', false],
+      ['Energy Pool', false],
+      ['Selecting a Player', true],   // click required (non-carrier piece)
+      ['Staging a Destination', true], // click required (destination cell)
+      ['No Running', false],
+      ['Throwing to a Teammate', true], // click required (ball carrier)
+      ['1-Step Receiver Cut', false],
+      ['Area-of-Control', false],
+      ['Scoring', false],
+      ['Compounding Rest', false],
+      ['Momentum', false],
+      ['Committing the Turn', true],   // click required (commit button)
+    ];
+
+    expected.forEach(([titleFragment, requiresClick], idx) => {
+      expect(TUTORIAL_STEPS[idx].title).toContain(titleFragment);
+      if (requiresClick) {
+        expect(TUTORIAL_STEPS[idx].clickTarget).toBeDefined();
+        expect(TUTORIAL_STEPS[idx].clickTarget?.prompt.length).toBeGreaterThan(5);
+      }
+    });
+  });
+
+  it('exposes at least one step per scripted-click phase (select, stage, throw, commit)', () => {
+    const clickSteps = TUTORIAL_STEPS.filter(s => !!s.clickTarget);
+    expect(clickSteps.length).toBeGreaterThanOrEqual(4);
+    for (const step of clickSteps) {
+      expect(step.clickTarget?.testId).toBeDefined();
+      expect(step.clickTarget?.prompt.length).toBeGreaterThan(5);
+    }
   });
 });
