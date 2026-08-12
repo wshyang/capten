@@ -19,4 +19,5 @@ checkpoints/tournament_32/*.tmp
 public/checkpoints/*
 !public/checkpoints/supreme_champion.json
 !public/checkpoints/supreme_champion_64.json
+checkpoints/train_resumable_64/*.json
 *.b64
