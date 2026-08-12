@@ -68,9 +68,12 @@ export const DEFAULT_CONFIG: GameConfig = {
     aiEngineMode: 'EPSILON_GREEDY_NN',
     nnModelSize: '64',
     epsilonExploitRate: 0.75,
-    // PR 4 default: keep tfjs as the browser inference runtime so this PR
-    // ships zero user-visible behaviour change. PR 5 will flip this to
-    // 'onnx' once we have telemetry from dogfooding via ?inferenceBackend=onnx.
+    // DEFAULT_CONFIG stays on tfjs because Node tests derive from this
+    // config and cannot load onnxruntime-web. The BROWSER default is set
+    // explicitly in src/App.tsx's createInitialState({...}) override to
+    // 'onnx' (see PR 5 in doc/ONNX_MIGRATION_PLAN.md). Users can opt back
+    // into tfjs with ?inferenceBackend=tfjs — kept as an emergency rollback
+    // path until PR 6 deletes the tfjs branch.
     inferenceBackend: 'tfjs',
   },
 };

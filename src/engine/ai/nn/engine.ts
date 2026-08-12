@@ -299,19 +299,26 @@ export class NNEngine implements AIEngine {
 
     // MCTS_WITH_NN_SHADOW: MCTS drives; NN runs passively for telemetry.
     const mctsResult = runSeededMCTS(state, rng, actingSide);
-    try {
-      const posture = selectPosture(state, actingSide);
-      const allCandidates = generateJointCandidateActions(state, posture, actingSide);
-      const modelSize = state.config.ai?.nnModelSize || '64';
-      const model = getCNNModel(modelSize);
-      const prediction = predictActionSync(model, state, allCandidates, actingSide);
-      (mctsResult as any).telemetry = {
-        engineType: this.mode,
-        turnLatencyMs: mctsResult.stats.timeMs,
-        shadowValuePrediction: prediction.value,
-      };
-    } catch (_e) {
-      // Never let shadow-inference errors break gameplay
+    // Shadow inference is a sync tfjs forward pass. When the caller is on
+    // the ORT backend, that would defeat the whole point of removing tfjs
+    // from the browser hot path — skip the shadow. (Node tests and any
+    // caller explicitly on tfjs still get the shadow telemetry.)
+    const backend = state.config.ai?.inferenceBackend ?? 'tfjs';
+    if (backend === 'tfjs') {
+      try {
+        const posture = selectPosture(state, actingSide);
+        const allCandidates = generateJointCandidateActions(state, posture, actingSide);
+        const modelSize = state.config.ai?.nnModelSize || '64';
+        const model = getCNNModel(modelSize);
+        const prediction = predictActionSync(model, state, allCandidates, actingSide);
+        (mctsResult as any).telemetry = {
+          engineType: this.mode,
+          turnLatencyMs: mctsResult.stats.timeMs,
+          shadowValuePrediction: prediction.value,
+        };
+      } catch (_e) {
+        // Never let shadow-inference errors break gameplay
+      }
     }
     return mctsResult;
   }

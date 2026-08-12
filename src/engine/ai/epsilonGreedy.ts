@@ -19,6 +19,27 @@ export class EpsilonGreedyAIEngine implements AIEngine {
     this.label = `${wrappedEngine.label} [Epsilon ${Math.round(exploitRate * 100)}%]`;
   }
 
+  /**
+   * Async variant: on exploit, delegates to the wrapped engine's
+   * planTurnAsync (falling back to sync planTurn) so ORT-Web works
+   * transparently through the epsilon wrapper. On explore, runs the
+   * random-action branch synchronously and resolves — no NN needed.
+   */
+  async planTurnAsync(
+    state: GameState,
+    rng: SeededRNG,
+    actingSide: Side = 'AI'
+  ): Promise<AIPlannedTurnResult & { telemetry?: AIEngineTelemetry }> {
+    if (rng.nextFloat() < this.exploitRate) {
+      if (this.wrappedEngine.planTurnAsync) {
+        return this.wrappedEngine.planTurnAsync(state, rng, actingSide);
+      }
+      return this.wrappedEngine.planTurn(state, rng, actingSide);
+    }
+    // Exploration branch is genuinely sync — no NN forward pass to await.
+    return this.planTurnSyncExplore(state, rng, actingSide);
+  }
+
   planTurn(
     state: GameState,
     rng: SeededRNG,
@@ -27,7 +48,21 @@ export class EpsilonGreedyAIEngine implements AIEngine {
     if (rng.nextFloat() < this.exploitRate) {
       return this.wrappedEngine.planTurn(state, rng, actingSide);
     }
+    return this.planTurnSyncExplore(state, rng, actingSide);
+  }
 
+  /**
+   * The random-exploration branch, factored out so both sync `planTurn`
+   * and async `planTurnAsync` share it. Caller has already consumed one
+   * `rng.nextFloat()` for the exploit-vs-explore decision; this method
+   * draws exactly one `rng.nextInt()` for the random-action pick, so
+   * seeded matches stay bit-identical.
+   */
+  private planTurnSyncExplore(
+    state: GameState,
+    rng: SeededRNG,
+    actingSide: Side = 'AI'
+  ): AIPlannedTurnResult & { telemetry?: AIEngineTelemetry } {
     const startTime = Date.now();
     const posture = selectPosture(state, actingSide);
     const stage0Card = evaluateStage0Cards(state, actingSide);

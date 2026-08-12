@@ -75,7 +75,9 @@ export const App: React.FC = () => {
         playerEngineMode: 'EPSILON_GREEDY_NN',
         defaultEngineMode: 'EPSILON_GREEDY_NN',
         epsilonExploitRate: 0.75,
-        ...(urlInferenceBackend ? { inferenceBackend: urlInferenceBackend } : {}),
+        // Browser default: onnxruntime-web (WebGPU→WASM). The URL param
+        // override lets users flip back to tfjs for one-off comparisons.
+        inferenceBackend: urlInferenceBackend ?? 'onnx',
       },
     })
   );
