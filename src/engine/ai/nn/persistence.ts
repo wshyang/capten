@@ -113,6 +113,43 @@ export class FileStorageBackend implements StorageBackend {
   exists(key: string): boolean {
     return this.read(key) !== null;
   }
+
+  writeLines(key: string, lines: string[]): void {
+    try {
+      if (!fs.existsSync(this.baseDir)) {
+        fs.mkdirSync(this.baseDir, { recursive: true });
+      }
+      const filePath = path.join(this.baseDir, `${key}.json`);
+      const tmpPath = `${filePath}.tmp`;
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      const CHUNK = 500;
+      for (let i = 0; i < lines.length; i += CHUNK) {
+        fs.appendFileSync(tmpPath, lines.slice(i, i + CHUNK).join('\n') + '\n', 'utf8');
+      }
+      fs.renameSync(tmpPath, filePath);
+    } catch (_e) {
+      // ignore in browser
+    }
+  }
+
+  readLines(key: string): string[] {
+    try {
+      const filePath = path.join(this.baseDir, `${key}.json`);
+      if (!fs.existsSync(filePath)) return [];
+      const buf = fs.readFileSync(filePath);
+      const result: string[] = [];
+      let start = 0;
+      for (let i = 0; i <= buf.length; i++) {
+        if (i === buf.length || buf[i] === 10) {
+          if (i > start) result.push(buf.subarray(start, i).toString('utf8'));
+          start = i + 1;
+        }
+      }
+      return result;
+    } catch (_e) {
+      return [];
+    }
+  }
 }
 
 /**
@@ -184,7 +221,11 @@ export function saveReplayBufferToStorage(
       valueTarget: s.valueTarget,
     })
   );
-  backend.write(key, lines.join('\n') + '\n');
+  if (backend instanceof FileStorageBackend) {
+    backend.writeLines(key, lines);
+  } else {
+    backend.write(key, lines.join('\n') + '\n');
+  }
 }
 
 /**
@@ -194,10 +235,11 @@ export function loadReplayBufferFromStorage(
   key: string,
   backend: StorageBackend = new LocalStorageBackend()
 ): TrainingSample[] {
-  const raw = backend.read(key);
-  if (!raw) return [];
   try {
-    const lines = raw.split('\n').filter((l: string) => l.trim().length > 0);
+    const lines = backend instanceof FileStorageBackend
+      ? backend.readLines(key)
+      : (backend.read(key) || '').split('\n').filter((l: string) => l.trim().length > 0);
+    if (lines.length === 0) return [];
     return lines.map((line: string) => {
       const parsed = JSON.parse(line);
       return {

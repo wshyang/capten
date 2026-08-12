@@ -86,3 +86,84 @@ export function runArenaAuditMatch(
     winner,
   };
 }
+
+/**
+ * Runs a symmetric arena audit match: NN model (A) vs pure MCTS (B).
+ * Player A uses the NN; Player B uses MCTS_ONLY at the given depth/iterations.
+ */
+export function runArenaAuditMatchVsMCTS(
+  seed: number,
+  playerASide: 'PLAYER' | 'AI',
+  rounds = 20,
+  mctsIterations = 450,
+  mctsDepth = 8,
+  modelSizeA: '32' | '64' = '64'
+): MatchOutcome {
+  let s = createInitialState(seed);
+  s = gameReducer(s, {
+    type: 'JUMP_BALL_RELEASE',
+    wonBy: seed % 2 === 0 ? 'PLAYER' : 'AI',
+    releaseMarginMs: 100,
+  });
+  s = { ...s, momentum: { PLAYER: 3, AI: 3 } } as GameState;
+
+  s = {
+    ...s,
+    config: {
+      ...s.config,
+      mcts: {
+        ...s.config.mcts,
+        tier: 'CUSTOM' as const,
+        iterations: mctsIterations,
+        rolloutDepth: mctsDepth,
+        ismctsSamples: 1,
+      },
+      ai: {
+        ...s.config.ai,
+        playerEngineMode: playerASide === 'PLAYER' ? 'NN_ACTIVE' : 'MCTS_ONLY',
+        aiEngineMode: playerASide === 'AI' ? 'NN_ACTIVE' : 'MCTS_ONLY',
+        nnModelSize: modelSizeA,
+      },
+    },
+  };
+
+  for (let t = 1; t <= rounds; t++) {
+    if (s.matchResult.isOver) break;
+    if (s.phase === 'PLAYER_PLAN') {
+      s = gameReducer(s, { type: 'RUN_AI_TURN_FOR_PLAYER' });
+    }
+    if (s.phase === 'AI_TURN') {
+      s = gameReducer(s, { type: 'RUN_AI_TURN' });
+    }
+    if (s.phase === 'AI_PLANNED_REVIEW') {
+      s = gameReducer(s, { type: 'START_PLAYER_TURN' });
+    }
+  }
+
+  const scorePlayer = s.score.PLAYER;
+  const scoreAi = s.score.AI;
+  const scoreA = playerASide === 'PLAYER' ? scorePlayer : scoreAi;
+  const scoreB = playerASide === 'PLAYER' ? scoreAi : scorePlayer;
+
+  let winner: 'A' | 'B' | 'DRAW' = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : 'DRAW';
+  if (winner === 'DRAW') {
+    const ballCarrier = s.pieces.find(p => p.hasBall);
+    if (ballCarrier) {
+      const targetA = playerASide === 'PLAYER' ? BOARD_CONFIG.aiScoringCell : BOARD_CONFIG.playerScoringCell;
+      const targetB = playerASide === 'PLAYER' ? BOARD_CONFIG.playerScoringCell : BOARD_CONFIG.aiScoringCell;
+      const distA = Math.hypot(ballCarrier.cell.col - targetA.col, ballCarrier.cell.row - targetA.row);
+      const distB = Math.hypot(ballCarrier.cell.col - targetB.col, ballCarrier.cell.row - targetB.row);
+      if (Math.abs(distA - distB) > 0.1) {
+        winner = distA < distB ? 'A' : 'B';
+      }
+    }
+  }
+
+  return {
+    seed,
+    playerA_is: playerASide,
+    scoreA,
+    scoreB,
+    winner,
+  };
+}

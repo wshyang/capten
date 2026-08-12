@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-node": "^4.22.0",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.29.0",
     "react": "^19.2.8",
@@ -38,5 +39,10 @@
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vitest": "^4.1.10"
+  },
+  "allowScripts": {
+    "core-js@3.29.1": true,
+    "fsevents@2.3.3": true,
+    "@tensorflow/tfjs-node@4.22.0": true
   }
 }

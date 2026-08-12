@@ -18,20 +18,22 @@
 # ==============================================================================
 
 # ─── STAGE 1: Build Static Frontend Bundle ───
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
 # Install dependencies first for optimal Docker layer caching
+# --ignore-scripts skips @tensorflow/tfjs-node native binary download (training-only,
+# never imported by the browser bundle — Vite tree-shakes it out entirely)
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Copy project source and build optimized static assets
 COPY . .
 RUN npm run build
 
 # ─── STAGE 2: Lightweight Production Nginx Server ───
-FROM nginx:alpine AS runner
+FROM nginx:1.27-alpine AS runner
 
 # Remove default nginx configuration
 RUN rm /etc/nginx/conf.d/default.conf

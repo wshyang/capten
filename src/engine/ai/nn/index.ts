@@ -34,7 +34,7 @@ import {
   type ResumableFlywheelState,
   type FlywheelStatus,
 } from './persistence';
-import { runArenaAuditMatch, type MatchOutcome } from './auditMatch';
+import { runArenaAuditMatch, runArenaAuditMatchVsMCTS, type MatchOutcome } from './auditMatch';
 import default64CkptData from '../../../../public/checkpoints/supreme_champion_64.json';
 import default32CkptData from '../../../../public/checkpoints/supreme_champion.json';
 
@@ -63,6 +63,7 @@ export {
   InMemoryStorageBackend,
   FileStorageBackend,
   runArenaAuditMatch,
+  runArenaAuditMatchVsMCTS,
 };
 
 export type {
