@@ -1,12 +1,15 @@
 import type { AIEngine, AIEngineMode } from './interface';
 import { defaultMCTSEngine } from './mcts/index';
-import { NNEngine } from './nn/index';
+// Browser-safe barrel: pulls NN engine + shared model getter without dragging
+// in the Node-only training toolkit (flywheel, tournament, file-backed
+// persistence, worker_threads). Node scripts should keep using `./nn/index`.
+import { NNEngine } from './nn/browser';
 import { wrapWithEpsilonGreedy } from './epsilonGreedy';
 
 export * from './interface';
 export * from './actionHelpers';
 export { MCTSEngine, defaultMCTSEngine } from './mcts/index';
-export { NNEngine, defaultNNEngine } from './nn/index';
+export { NNEngine, defaultNNEngine } from './nn/browser';
 export { EpsilonGreedyAIEngine, wrapWithEpsilonGreedy } from './epsilonGreedy';
 
 export function getAIEngine(mode: AIEngineMode = 'MCTS_ONLY', epsilonExploitRate = 0.75): AIEngine {
