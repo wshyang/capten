@@ -103,7 +103,7 @@ export function getThrowPathCells(from: Cell, to: Cell): Cell[] {
 export function calculateTotalInterceptionChance(
   from: Cell,
   to: Cell,
-  defenders: Piece[],
+  _defenders: Piece[],
   baseInterceptionChance: number,
   config: BalanceConfig = BASELINE_CONFIG
 ): number {
@@ -124,7 +124,7 @@ export function calculateTotalInterceptionChance(
 export function analyzeThrowDifficulty(
   from: Cell,
   to: Cell,
-  defenders: Piece[],
+  _defenders: Piece[],
   config: BalanceConfig = BASELINE_CONFIG
 ): {
   distance: number;

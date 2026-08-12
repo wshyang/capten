@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { GameState, Piece, Cell, ThrowPreviewData, Card, ThrowType } from '../engine/types';
 import { ControlShading } from './ControlShading';
 import { PieceLayer } from './PieceLayer';
@@ -97,7 +97,7 @@ export const Board: React.FC<BoardProps> = ({
 
   // Filter eligible pass targets:
   // Stationary pieces OR pieces with a staged 1-step move (dist <= 1.42 cells)
-  const playerTeammates = state.pieces.filter(
+  const playerTeammates = useMemo(() => state.pieces.filter(
     p => p.side === 'PLAYER' &&
       (!ballCarrier || p.id !== ballCarrier.id) &&
       !p.movedLastTurn &&
@@ -109,7 +109,7 @@ export const Board: React.FC<BoardProps> = ({
         const dist = Math.hypot(staged.destCell.col - p.cell.col, staged.destCell.row - p.cell.row);
         return dCol <= 1 && dRow <= 1 && dist <= 1.42;
       })()
-  );
+  ), [state.pieces, state.plannedMoves, ballCarrier]);
 
   useEffect(() => {
     if (ballCarrier && ballCarrier.side === 'PLAYER' && hoveredCell) {
@@ -135,6 +135,25 @@ export const Board: React.FC<BoardProps> = ({
     }
     setThrowPreview(null);
   }, [ballCarrier, hoveredCell, state.pieces, state.controlMap, state.temporaryState, state.plannedMoves, playerTeammates, state.isRestartPhase]);
+
+  // Unified active throw preview (shown only during throw planning: hovering teammate or selecting loft in modal)
+  const activeThrowPreview: ThrowPreviewData | null = useMemo(() => {
+    if (throwPreview) return throwPreview;
+    if (planningThrowTarget && ballCarrier) {
+      const isRestart = !!state.isRestartPhase?.[ballCarrier.side];
+      return previewThrow(
+        ballCarrier,
+        planningThrowTarget.targetCell,
+        state.pieces,
+        state.controlMap,
+        state.temporaryState,
+        state.plannedMoves,
+        isRestart,
+        state.plannedThrow?.throwType || 'FLAT'
+      );
+    }
+    return null;
+  }, [throwPreview, planningThrowTarget, state.plannedThrow, ballCarrier, state.pieces, state.controlMap, state.temporaryState, state.plannedMoves, state.isRestartPhase]);
 
   // Adjacent legal empty cells (1 step: orthogonal or diagonal, <=1.42 dist) around selected enemy for Bait card
   const baitSelectedEnemy = baitSelectedEnemyId ? state.pieces.find(p => p.id === baitSelectedEnemyId) : null;
@@ -204,6 +223,7 @@ export const Board: React.FC<BoardProps> = ({
       if (reachable) {
         soundEngine.playBlip(540, 0.08);
         onStageMove(selectedPiece.id, cell);
+        setSelectedPieceId(null);
         return;
       }
     }
@@ -544,8 +564,8 @@ export const Board: React.FC<BoardProps> = ({
         <ControlShading controlMap={state.controlMap} cols={cols} rows={rows} />
 
         {/* Throw Flight Vector & Golden Ball Animation */}
-        {throwPreview && (
-          <ThrowPreview preview={throwPreview} cellSizePx={cellSizePx} />
+        {activeThrowPreview && (
+          <ThrowPreview preview={activeThrowPreview} cellSizePx={cellSizePx} />
         )}
 
         {/* 11x11 Inked Grid Cells */}
@@ -562,6 +582,14 @@ export const Board: React.FC<BoardProps> = ({
               const isCenter = c === 5 && r === 5;
               const isReachable = reachableCells.find(reach => areCellsEqual(reach.cell, currentCell));
               const isBaitTarget = baitAdjacentCells.some(bc => areCellsEqual(bc, currentCell));
+
+              const interceptCheckCell = activeThrowPreview?.pathCells.find(p =>
+                areCellsEqual(p.cell, currentCell)
+              );
+              const interceptProb = interceptCheckCell ? interceptCheckCell.captureProbability : 0;
+              const throwPathAlpha = interceptCheckCell
+                ? Math.min(0.55, Math.max(0.12, interceptProb * 0.65 + 0.12))
+                : 0;
 
               return (
                 <div
@@ -588,6 +616,17 @@ export const Board: React.FC<BoardProps> = ({
 
                   {isCenter && (
                     <div className="w-2.5 h-2.5 rounded-full bg-amber-800/50 pointer-events-none" />
+                  )}
+
+                  {/* Trajectory Cell Interception Shading Indicator */}
+                  {interceptCheckCell && (
+                    <div
+                      data-testid={`throw-path-cell-${c}-${r}`}
+                      className="absolute inset-0 pointer-events-none z-0 transition-colors duration-200 rounded-lg animate-fadeIn"
+                      style={{
+                        backgroundColor: `rgba(190, 18, 60, ${throwPathAlpha})`,
+                      }}
+                    />
                   )}
 
                   {isBaitTarget && (

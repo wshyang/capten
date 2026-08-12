@@ -1,6 +1,7 @@
 import type { ThrowType, ThrowConfig } from './config/throw';
+import type { AIEngineMode } from './ai/interface';
 
-export type { ThrowType, ThrowConfig };
+export type { ThrowType, ThrowConfig, AIEngineMode };
 
 export type Attribute = 
   | 'RESOURCE' 
@@ -148,6 +149,12 @@ export interface ThrowResolution {
   intercepted: boolean;
   interceptedAtCell?: Cell;
   interceptedByPieceId?: string;
+  interceptorArrivedEnergy?: number;
+  contestedMisses?: Array<{
+    pieceId: string;
+    cell: Cell;
+    energyAfterMove: number;
+  }>;
   catchRoll: number;
   catchSuccess: boolean;
   scored: boolean;
@@ -350,6 +357,13 @@ export interface GameConfig {
       spacing: number;
       hub: number;
     };
+  };
+  ai?: {
+    defaultEngineMode?: AIEngineMode;
+    playerEngineMode?: AIEngineMode;
+    aiEngineMode?: AIEngineMode;
+    nnModelSize?: '32' | '64';
+    epsilonExploitRate?: number;
   };
 }
 

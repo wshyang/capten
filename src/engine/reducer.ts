@@ -5,7 +5,7 @@ import { resolveThrow } from './interception';
 import { computeControlMap } from './control';
 import { CARDS_BY_ID } from './config/cards';
 import { calculateInterceptionMomentumEarn } from './config/momentum';
-import { runSeededMCTS } from './ai/mcts';
+import { getAIEngine } from './ai/index';
 import { getAIDiscardChoice } from './ai/cardSearch';
 import { generateAptitudeReport } from './scoring';
 import { createInitialState } from './setup';
@@ -966,7 +966,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.phase !== 'PLAYER_PLAN') return state;
 
       // Invariant (§11): Player cannot end turn until hand is within hand limit (≤ 3 cards)
-      if (state.hands.PLAYER.length > state.config.momentum.handLimit) {
+      const stagedCardIds = new Set((state.plannedCards || []).map(pc => pc.cardId));
+      const effectiveHandLength = state.hands.PLAYER.filter(c => !stagedCardIds.has(c.id)).length;
+      if (effectiveHandLength > state.config.momentum.handLimit) {
         return state;
       }
 
@@ -1660,7 +1662,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case 'RUN_AI_TURN': {
       if (state.phase !== 'AI_TURN') return state;
 
-      const mctsResult = runSeededMCTS(state, rng);
+      const engineMode = state.config.ai?.aiEngineMode || state.config.ai?.defaultEngineMode || 'MCTS_ONLY';
+      const aiEngine = getAIEngine(engineMode, state.config.ai?.epsilonExploitRate ?? 0.75);
+      const mctsResult = aiEngine.planTurn(state, rng, 'AI');
 
       // Create AI planned actions object showing origin and destination for every move & throw
       const aiPlannedMoves = mctsResult.moves.map(m => {
@@ -1727,8 +1731,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case 'RUN_AI_TURN_FOR_PLAYER': {
       if (state.phase !== 'PLAYER_PLAN') return state;
 
-      // Run MCTS for PLAYER side
-      const mctsResult = runSeededMCTS(state, rng, 'PLAYER');
+      const engineMode = state.config.ai?.playerEngineMode || state.config.ai?.defaultEngineMode || 'MCTS_ONLY';
+      const aiEngine = getAIEngine(engineMode, state.config.ai?.epsilonExploitRate ?? 0.75);
+      const mctsResult = aiEngine.planTurn(state, rng, 'PLAYER');
 
       // Execute planned moves
       let workingPieces = state.pieces.map(p => ({ ...p, cell: { ...p.cell }, buffs: [...p.buffs] }));
@@ -1885,19 +1890,38 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
       }
 
-      // Apply moves
+      // Apply moves with single-occupancy invariant protection and strict legality enforcement
+      const occupiedCoords = new Set(workingPieces.map(p => `${p.cell.col},${p.cell.row}`));
       for (const m of mctsResult.moves) {
         const p = workingPieces.find(x => x.id === m.pieceId);
         if (p) {
           const fromCell = { ...p.cell };
-          p.cell = { ...m.destCell };
+          const legalityCheck = isLegalMove(
+            p,
+            m.destCell,
+            workingPieces,
+            tempState,
+            11,
+            11,
+            state.config.board.carrierMayPivotStep
+          );
+          if (!legalityCheck.legal) {
+            continue; // Enforce parity: AI can never make a move illegal for a human player
+          }
+          occupiedCoords.delete(`${fromCell.col},${fromCell.row}`);
+          let targetCell = { ...m.destCell };
+          if (occupiedCoords.has(`${targetCell.col},${targetCell.row}`)) {
+            targetCell = findNearestUnoccupiedCell(targetCell, workingPieces, p.cell);
+          }
+          p.cell = { ...targetCell };
+          occupiedCoords.add(`${p.cell.col},${p.cell.row}`);
           p.energy = Math.max(0, p.energy - m.cost);
           p.movedLastTurn = true;
           newEvents.push({
             id: `ev_${Date.now()}_${state.eventLog.length + newEvents.length}`,
             timestamp: Date.now(), turn: state.turn, phase: 'PLAYER_PLAN', side: 'PLAYER',
             type: 'PIECE_MOVED',
-            details: { pieceId: p.id, fromCell, toCell: m.destCell, cost: m.cost },
+            details: { pieceId: p.id, fromCell, toCell: p.cell, cost: m.cost },
           });
         }
       }
@@ -2100,7 +2124,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           decks: { ...state.decks, AI: aiDeck }, hands: { ...state.hands, AI: aiHand },
           eventLog: [...state.eventLog, ...newEvents],
           plannedMoves: [], plannedThrow: null, plannedCards: [],
-          matchResult: { isOver: true, winner, reason: `Victory: ${updatedScore.PLAYER}-${updatedScore.AI}` },
+          matchResult: { isOver: true, winner, reason: `Victory: ${updatedScore.PLAYER}-${updatedScore.AI}`, aptitudeReport: null },
         };
       }
 
@@ -2173,11 +2197,30 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           }
         }
 
-        // 1. Apply AI moves
+        // 1. Apply AI moves with single-occupancy invariant protection and strict legality enforcement
+        const occupiedCoords = new Set(workingPieces.map(p => `${p.cell.col},${p.cell.row}`));
         for (const m of aiPlan.moves) {
           const p = workingPieces.find(x => x.id === m.pieceId);
           if (p) {
-            p.cell = { ...m.destCell };
+            const legalityCheck = isLegalMove(
+              p,
+              m.destCell,
+              workingPieces,
+              tempState,
+              11,
+              11,
+              state.config.board.carrierMayPivotStep
+            );
+            if (!legalityCheck.legal) {
+              continue; // Enforce parity: AI can never make a move illegal for a human player
+            }
+            occupiedCoords.delete(`${p.cell.col},${p.cell.row}`);
+            let targetCell = { ...m.destCell };
+            if (occupiedCoords.has(`${targetCell.col},${targetCell.row}`)) {
+              targetCell = findNearestUnoccupiedCell(targetCell, workingPieces, p.cell);
+            }
+            p.cell = { ...targetCell };
+            occupiedCoords.add(`${p.cell.col},${p.cell.row}`);
             p.energy = Math.max(0, p.energy - m.cost);
             p.movedLastTurn = true;
             newEvents.push({
@@ -2187,7 +2230,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
               phase: 'AI_TURN',
               side: 'AI',
               type: 'PIECE_MOVED',
-              details: { pieceId: p.id, fromCell: m.fromCell, toCell: m.destCell, cost: m.cost },
+              details: { pieceId: p.id, fromCell: m.fromCell, toCell: p.cell, cost: m.cost },
             });
           }
         }
