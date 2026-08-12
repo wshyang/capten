@@ -373,16 +373,29 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              soundEngine.playBlip(300, 0.05);
-              onClose();
-            }}
-            className="p-1 rounded-lg bg-amber-200 hover:bg-amber-300 border border-amber-800 text-amber-950 transition-all cursor-pointer"
-            title="Exit Tutorial"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              data-testid="tutorial-skip-all"
+              onClick={() => {
+                soundEngine.playBlip(300, 0.05);
+                onClose();
+              }}
+              className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 border border-amber-800 text-amber-950 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+              title="Skip the whole tutorial and start exploring on your own"
+            >
+              Skip Tutorial
+            </button>
+            <button
+              onClick={() => {
+                soundEngine.playBlip(300, 0.05);
+                onClose();
+              }}
+              className="p-1 rounded-lg bg-amber-200 hover:bg-amber-300 border border-amber-800 text-amber-950 transition-all cursor-pointer"
+              title="Close (same as Skip)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2 text-xs leading-relaxed text-amber-950">

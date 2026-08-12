@@ -87,7 +87,10 @@ describe('jsdom: <TutorialOverlay /> Component', () => {
       />
     );
 
-    const exitBtn = screen.getByTitle('Exit Tutorial');
+    // The overlay now exposes two close paths — a labelled "Skip Tutorial"
+    // button and the icon-only X. This test asserts the labelled button
+    // works; the X is a duplicate affordance with an identical onClose.
+    const exitBtn = screen.getByTestId('tutorial-skip-all');
     fireEvent.click(exitBtn);
     expect(onClose).toHaveBeenCalledTimes(1);
   });

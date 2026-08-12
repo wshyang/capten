@@ -21,13 +21,13 @@ describe('Tutorial Mode Curriculum & Testability (§12)', () => {
     // Each entry: [expected title substring, whether the step is a required click step]
     const expected: Array<[string, boolean]> = [
       ['Sand Court', false],
-      ['Energy Pool', false],
+      ['Stamina', false],
       ['Selecting a Player', true],   // click required (non-carrier piece)
       ['Staging a Destination', true], // click required (destination cell)
       ['No Running', false],
       ['Throwing to a Teammate', true], // click required (ball carrier)
-      ['1-Step Receiver Cut', false],
-      ['Area-of-Control', false],
+      ['Cut One Step', false],
+      ['Defenders Steal Throws', false],
       ['Scoring', false],
       ['Compounding Rest', false],
       ['Momentum', false],

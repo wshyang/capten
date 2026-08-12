@@ -84,14 +84,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 2,
-    title: '2. The Energy Pool (10.0e Stamina)',
-    subtitle: 'Normalized Resource & Stamina Meter',
+    title: '2. Every Player Has Stamina',
+    subtitle: 'The gauge under each character shows their energy',
     highlightTestId: 'energy-gauge-p_1',
     explanation:
-      'Every piece operates on a normalized stamina pool starting at 10.0e (clamped to max 10.0e). Below each character is an energy gauge with a live numeric readout. High stamina provides sprint capacity and passing escape velocity; low stamina leaves pieces vulnerable to exhaustion and interceptions.',
+      'Each player starts full of stamina. The gauge under their feet turns green when they are fresh, amber when tired, and red when exhausted. Moving and throwing spend stamina; sitting still lets it recover.',
     keyTakeaway:
-      'Energy is consumed by movement, throws across enemy zones, defender interception lunges, and tactical Swing cards. Color coding: Green (>50%), Amber (25–50%), Red (<25%).',
-    tip: 'Watch your pieces\u2019 stamina meters before staging long sprints across the court!',
+      'Tired players move slower and their throws get intercepted more easily. Keep an eye on the gauges before asking a player to sprint or throw across the court.',
+    tip: 'A red gauge is a warning sign — that player needs a turn or two to rest.',
   },
   {
     id: 3,
@@ -107,7 +107,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     explanation:
       "To move a piece: click any non-carrier teammate. Once selected, every legal destination cell will illuminate in blue and show its exact energy cost (e.g. \"-1.0e\", \"-1.4e\").",
     keyTakeaway:
-      'Movement costs exact Euclidean distance: 1 orthogonal cell = 1.0e, 1 diagonal cell = 1.41e. Moving consumes energy on turn execution and resets rest streak to 0.',
+      'Straight moves cost a little stamina per square; diagonal moves cost a bit more. The blue cost badge on each highlighted cell shows the exact price.',
     tip: 'The ball-carrier itself cannot be moved this way — passing is the only legal way to advance the ball.',
   },
   {
@@ -161,30 +161,30 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     explanation:
       'Clicking the ball carrier reveals the Throw Action Toolbar — every eligible receiver and their capture risk. Click a teammate on the board or a chip in the toolbar to preview the throw.',
     keyTakeaway:
-      'Throwing uses exponential cost scaling: E_throw = (Distance^1.6) / 3.0. Passes through open air (no defender AoC) are 100% refunded!',
+      'Longer throws cost sharply more stamina than short ones. Passes that fly through open air with no defender nearby cost nothing at all — you get a full refund.',
     tip: 'Short seam-cutting passes (1–3 cells) slip through gaps for near-zero cost.',
   },
   {
     id: 7,
-    title: '7. The 1-Step Receiver Cut Rule',
-    subtitle: 'Pivot & catch in the same turn (dist ≤ 1.42)',
+    title: '7. Receivers Can Cut One Step',
+    subtitle: 'A teammate can take one small step and still catch',
     highlightTestId: 'stage-throw-btn-p_2',
     explanation:
-      'A throw recipient may take at most 1 orthogonal or diagonal step (max(|Δc|, |Δr|) ≤ 1, distance ≤ 1.42) before catching. Longer moves make the piece ineligible to receive that turn.',
+      'Before catching a pass, a teammate can move exactly one square in any direction — straight or diagonally. Any bigger move means they are running too far and cannot catch that turn.',
     keyTakeaway:
-      'The recipient moves FIRST, then the throw trajectory evaluates at its new cell.',
-    tip: 'Use 1-step cuts to slip past a defender right before catching.',
+      'The receiver moves first, then the throw is aimed at where they end up. Great for slipping past a nearby defender right before the catch.',
+    tip: 'Think of it as a quick pivot: one step to shake a defender, then the ball arrives.',
   },
   {
     id: 8,
-    title: '8. Area-of-Control & Interceptions',
-    subtitle: 'Extended zone defence & multiplicative risk',
+    title: '8. Defenders Steal Throws',
+    subtitle: 'Every pirate covers the squares around them',
     highlightTestId: 'control-shading-layer',
     explanation:
-      'Every defender projects an Area-of-Control (AoC) wash onto surrounding cells. When a throw crosses enemy AoC, interception checks occur multiplicatively at each flight-path cell. Your thrower\u2019s remaining stamina acts as escape velocity against defender stamina.',
+      'Each pirate defends the squares immediately around them (the shaded ring). Any throw that crosses one of those squares can be intercepted — the more shaded squares your pass crosses, the higher the risk. A thrower with lots of stamina throws harder and slips through more often; a tired thrower gets picked off.',
     keyTakeaway:
-      'Long passes across mid-court face 55%-70% capture risk. Prefer HIGH_LOB throws, short seam cuts, or tactical cards.',
-    tip: 'If intercepted, the defender captures the ball and lunges to the interception cell.',
+      'A long straight throw across midfield is very risky. Prefer short passes that thread between defenders, or lob the ball high over them.',
+    tip: 'If your pass is intercepted, the pirate catches it and takes possession right there.',
   },
   {
     id: 9,

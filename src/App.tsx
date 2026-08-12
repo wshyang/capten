@@ -223,11 +223,12 @@ export const App: React.FC = () => {
 
   const ballHolder = state.pieces.find(p => p.hasBall);
 
-  // A "game in progress" = not in JUMP_BALL AND not MATCH_OVER AND the player
-  // has actually started playing (past turn 1, has staged something, or a
-  // score has been recorded).
+  // Only prompt "end current match?" if the user has actually made progress
+  // worth losing. During JUMP_BALL, during MATCH_OVER, and on a pristine
+  // turn-1 opening with nothing staged, we silently reset — no dialog needed.
   const isGameInProgress =
-    !state.jumpBall.active &&
+    state.phase !== 'JUMP_BALL' &&
+    state.phase !== 'MATCH_OVER' &&
     !state.matchResult.isOver &&
     (state.turn > 1 ||
       state.score.PLAYER > 0 ||
@@ -458,14 +459,29 @@ export const App: React.FC = () => {
               </span>
             </div>
 
-            {state.phase === 'PLAYER_PLAN' && (
+            {/*
+              Turn timer: fully hidden while the tutorial is open so beginners
+              are not stressed by a countdown they can't see anyway. Still
+              rendered (but paused) when help/config/captain-popup modals are
+              up — those are momentary.
+            */}
+            {state.phase === 'PLAYER_PLAN' && !isTutorialOpen && (
               <TurnTimer
                 remainingSeconds={state.timer.remainingSeconds}
                 maxSeconds={state.config.timing.turnTimerSeconds}
-                isPaused={isTutorialOpen || isHelpOpen || isConfigOpen || !!captainAttemptPopup}
+                isPaused={isHelpOpen || isConfigOpen || !!captainAttemptPopup}
                 onTimeExpired={() => {}}
                 onTick={s => dispatch({ type: 'TIMER_TICK', secondsElapsed: s })}
               />
+            )}
+            {state.phase === 'PLAYER_PLAN' && isTutorialOpen && (
+              <span
+                data-testid="tutorial-timer-hidden-badge"
+                className="text-[10px] font-black uppercase tracking-wider bg-emerald-200 border border-emerald-800 text-emerald-950 px-2 py-0.5 rounded-full"
+                title="Turn timer paused while the tutorial is active"
+              >
+                Timer paused for tutorial
+              </span>
             )}
 
             {/* In AI_PLANNED_REVIEW: Start Turn Banner Button */}
