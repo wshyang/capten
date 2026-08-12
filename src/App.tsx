@@ -12,6 +12,8 @@ import { MCTSVisualizer } from './ui/MCTSVisualizer';
 import { OpponentTacticalFeed } from './ui/OpponentTacticalFeed';
 import { TutorialOverlay, TUTORIAL_STEPS } from './ui/TutorialOverlay';
 import { soundEngine } from './ui/TacticalAudio';
+import { planAndDispatchAITurn } from './engine/ai/asyncTurnRunner';
+import { warmUpONNX } from './engine/ai/nn/onnxInference';
 import {
   Trophy,
   Volume2,
@@ -52,6 +54,19 @@ export const App: React.FC = () => {
     aiScore: number;
   } | null>(null);
 
+  // Allow dogfooding the ONNX Runtime Web backend via
+  //   ?inferenceBackend=onnx
+  // in the URL. The setting sticks for the whole session; leaving the query
+  // param off restores the tfjs default. See doc/ONNX_MIGRATION_PLAN.md
+  // §PR-4 rollout.
+  const urlInferenceBackend: 'tfjs' | 'onnx' | undefined =
+    typeof window !== 'undefined'
+      ? (() => {
+          const raw = new URLSearchParams(window.location.search).get('inferenceBackend');
+          return raw === 'onnx' || raw === 'tfjs' ? raw : undefined;
+        })()
+      : undefined;
+
   const [state, dispatch] = useReducer(
     gameReducer,
     createInitialState(initialSeed, {
@@ -60,6 +75,7 @@ export const App: React.FC = () => {
         playerEngineMode: 'EPSILON_GREEDY_NN',
         defaultEngineMode: 'EPSILON_GREEDY_NN',
         epsilonExploitRate: 0.75,
+        ...(urlInferenceBackend ? { inferenceBackend: urlInferenceBackend } : {}),
       },
     })
   );
@@ -176,16 +192,36 @@ export const App: React.FC = () => {
     }
   }, [state.eventLog]);
 
-  // AI Turn auto-execution
+  // AI Turn auto-execution (Path B: async planner + APPLY_AI_TURN_RESULT).
+  // Uses the async orchestrator so ONNX Runtime Web's async session.run()
+  // works transparently. MCTS/epsilon engines still finish in one microtask.
   useEffect(() => {
     if (state.phase === 'AI_TURN' && !state.matchResult.isOver) {
       const timer = setTimeout(() => {
-        dispatch({ type: 'RUN_AI_TURN' });
+        planAndDispatchAITurn(state, dispatch, { side: 'AI' });
       }, 500);
       return () => clearTimeout(timer);
     }
     return undefined;
+    // We depend on state.phase (transitions us into AI_TURN) and the
+    // matchResult flag. Depending on the entire `state` object would fire
+    // the effect on every dispatch — not what we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase, state.matchResult.isOver]);
+
+  // Warm up the ONNX Runtime Web session on mount so the first AI turn
+  // does not eat the ~200 ms WASM/WebGPU init cost. Feature-flag gated so
+  // users on the tfjs backend never pay the ORT bundle download.
+  useEffect(() => {
+    if ((state.config.ai?.inferenceBackend ?? 'tfjs') !== 'onnx') return;
+    const size = state.config.ai?.nnModelSize || '64';
+    warmUpONNX(size).catch(err => {
+      console.warn('[warmUpONNX] failed — falling back to lazy load on first AI turn:', err);
+    });
+    // Only warm up once per session per size; the session is cached in
+    // onnxInference.ts and reused for the rest of the app's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-play AI vs AI demo loop when enabled
   useEffect(() => {

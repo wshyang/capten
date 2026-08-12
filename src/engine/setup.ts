@@ -68,6 +68,10 @@ export const DEFAULT_CONFIG: GameConfig = {
     aiEngineMode: 'EPSILON_GREEDY_NN',
     nnModelSize: '64',
     epsilonExploitRate: 0.75,
+    // PR 4 default: keep tfjs as the browser inference runtime so this PR
+    // ships zero user-visible behaviour change. PR 5 will flip this to
+    // 'onnx' once we have telemetry from dogfooding via ?inferenceBackend=onnx.
+    inferenceBackend: 'tfjs',
   },
 };
 

@@ -19,6 +19,7 @@
     "@tensorflow/tfjs-node": "^4.22.0",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.29.0",
+    "onnxruntime-web": "^1.27.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1"
@@ -43,6 +44,7 @@
     "tsx": "^4.19.2",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
+    "vite-plugin-static-copy": "^4.1.1",
     "vitest": "^4.1.10"
   },
   "allowScripts": {

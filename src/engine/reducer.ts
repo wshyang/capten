@@ -31,6 +31,76 @@ function syncBallHolder(pieces: Piece[], explicitHolderId: string | null): Piece
   }));
 }
 
+/**
+ * Shared body for both `RUN_AI_TURN` (sync engine call) and
+ * `APPLY_AI_TURN_RESULT` (async pre-computed plan). Stashes the plan into
+ * `aiPlannedActions` for the "AI planned review" UI and transitions the
+ * game phase. Pure data — no engine invocation.
+ */
+function applyAITurnPlanForReview(
+  state: GameState,
+  plan: import('./ai/interface').AIPlannedTurnResult,
+): GameState {
+  const aiPlannedMoves = plan.moves.map(m => {
+    const p = state.pieces.find(x => x.id === m.pieceId);
+    return {
+      pieceId: m.pieceId,
+      fromCell: p ? { ...p.cell } : { ...m.destCell },
+      destCell: { ...m.destCell },
+      cost: m.cost,
+    };
+  });
+
+  let aiPlannedThrow:
+    | { throwerId: string; fromCell: Cell; targetPieceId: string; targetCell: Cell }
+    | undefined;
+  if (plan.throwAction) {
+    const carrier = state.pieces.find(p => p.id === plan.throwAction!.throwerId);
+    aiPlannedThrow = {
+      throwerId: plan.throwAction.throwerId,
+      fromCell: carrier ? { ...carrier.cell } : { col: 5, row: 6 },
+      targetPieceId: plan.throwAction.targetPieceId,
+      targetCell: { ...plan.throwAction.targetCell },
+    };
+  }
+
+  return {
+    ...state,
+    phase: 'AI_PLANNED_REVIEW',
+    aiPlannedActions: {
+      moves: aiPlannedMoves,
+      throwAction: aiPlannedThrow,
+      stage0Card: plan.stage0Card.card?.id || null,
+      stage0CardTarget: plan.stage0Card.targetPieceId || null,
+      stage0CardCell: plan.stage0Card.targetCell || null,
+      stage2Card: plan.stage2Card.card?.id || null,
+      stage2CardTarget: plan.stage2Card.targetPieceId || null,
+      stage2CardCell: plan.stage2Card.targetCell || null,
+      posture: plan.posture,
+      stats: plan.stats,
+    },
+    aiStatus: {
+      isThinking: false,
+      selectedPosture: plan.posture,
+      lastSearchStats: {
+        iterations: plan.stats.iterations,
+        nodesEvaluated: plan.stats.nodesEvaluated,
+        bestScore: plan.stats.bestScore,
+        candidateCount: plan.stats.candidateCount,
+        bestActionDescription: plan.stats.bestActionDescription,
+        stage0Card: plan.stage0Card.card?.id || null,
+        stage2Card: plan.stage2Card.card?.id || null,
+        timeMs: plan.stats.timeMs,
+      },
+    },
+    timer: {
+      ...state.timer,
+      isPaused: true,
+      isExpired: false,
+    },
+  };
+}
+
 export function gameReducer(state: GameState, action: GameAction): GameState {
   const rng = new SeededRNG(state.seed);
   rng.setState(state.rngState);
@@ -1665,65 +1735,27 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const engineMode = state.config.ai?.aiEngineMode || state.config.ai?.defaultEngineMode || 'MCTS_ONLY';
       const aiEngine = getAIEngine(engineMode, state.config.ai?.epsilonExploitRate ?? 0.75);
       const mctsResult = aiEngine.planTurn(state, rng, 'AI');
+      return applyAITurnPlanForReview(state, mctsResult);
+    }
 
-      // Create AI planned actions object showing origin and destination for every move & throw
-      const aiPlannedMoves = mctsResult.moves.map(m => {
-        const p = state.pieces.find(x => x.id === m.pieceId);
-        return {
-          pieceId: m.pieceId,
-          fromCell: p ? { ...p.cell } : { ...m.destCell },
-          destCell: { ...m.destCell },
-          cost: m.cost,
-        };
-      });
-
-      let aiPlannedThrow: { throwerId: string; fromCell: Cell; targetPieceId: string; targetCell: Cell } | undefined;
-      if (mctsResult.throwAction) {
-        const carrier = state.pieces.find(p => p.id === mctsResult.throwAction!.throwerId);
-        aiPlannedThrow = {
-          throwerId: mctsResult.throwAction.throwerId,
-          fromCell: carrier ? { ...carrier.cell } : { col: 5, row: 6 },
-          targetPieceId: mctsResult.throwAction.targetPieceId,
-          targetCell: { ...mctsResult.throwAction.targetCell },
-        };
+    /**
+     * Path-B async counterpart. The caller (asyncTurnRunner) has already
+     * run the engine — possibly on ONNX Runtime Web — and hands the plan
+     * to us as pure data. Reducer stays synchronous; no engine call here.
+     */
+    case 'APPLY_AI_TURN_RESULT': {
+      if (state.phase !== 'AI_TURN') return state;
+      if (action.side !== 'AI') {
+        // PLAYER-side async is not wired yet; see reducer note above.
+        return state;
       }
-
-      // Transition to AI_PLANNED_REVIEW so the player sees the AI's movements and vectors on the main gameplay UI
-      return {
-        ...state,
-        phase: 'AI_PLANNED_REVIEW',
-        aiPlannedActions: {
-          moves: aiPlannedMoves,
-          throwAction: aiPlannedThrow,
-          stage0Card: mctsResult.stage0Card.card?.id || null,
-          stage0CardTarget: mctsResult.stage0Card.targetPieceId || null,
-          stage0CardCell: mctsResult.stage0Card.targetCell || null,
-          stage2Card: mctsResult.stage2Card.card?.id || null,
-          stage2CardTarget: mctsResult.stage2Card.targetPieceId || null,
-          stage2CardCell: mctsResult.stage2Card.targetCell || null,
-          posture: mctsResult.posture,
-          stats: mctsResult.stats,
-        },
-        aiStatus: {
-          isThinking: false,
-          selectedPosture: mctsResult.posture,
-          lastSearchStats: {
-            iterations: mctsResult.stats.iterations,
-            nodesEvaluated: mctsResult.stats.nodesEvaluated,
-            bestScore: mctsResult.stats.bestScore,
-            candidateCount: mctsResult.stats.candidateCount,
-            bestActionDescription: mctsResult.stats.bestActionDescription,
-            stage0Card: mctsResult.stage0Card.card?.id || null,
-            stage2Card: mctsResult.stage2Card.card?.id || null,
-            timeMs: mctsResult.stats.timeMs,
-          },
-        },
-        timer: {
-          ...state.timer,
-          isPaused: true,
-          isExpired: false,
-        },
-      };
+      // Note: `action.rngStateAfter` is intentionally ignored for the
+      // stash-for-review path (`RUN_AI_TURN`'s reducer body never advanced
+      // rngState either — it only did so if the plan itself mutated state,
+      // which the stash path doesn't). If we ever wire a PLAYER-side async
+      // path that actually executes the plan (mirroring
+      // RUN_AI_TURN_FOR_PLAYER), we must restore rngState from it here.
+      return applyAITurnPlanForReview(state, action.result);
     }
 
 

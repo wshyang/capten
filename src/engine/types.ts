@@ -364,6 +364,13 @@ export interface GameConfig {
     aiEngineMode?: AIEngineMode;
     nnModelSize?: '32' | '64';
     epsilonExploitRate?: number;
+    /**
+     * Which inference runtime the browser uses when the mode is one of the
+     * NN modes. `'tfjs'` (the current default) loads inline JSON weights
+     * into @tensorflow/tfjs; `'onnx'` fetches the .onnx artefact and runs
+     * it through onnxruntime-web. See doc/ONNX_MIGRATION_PLAN.md.
+     */
+    inferenceBackend?: 'tfjs' | 'onnx';
   };
 }
 
@@ -461,6 +468,19 @@ export type GameAction =
   | { type: 'END_PLAYER_TURN' }
   | { type: 'RUN_AI_TURN' }
   | { type: 'RUN_AI_TURN_FOR_PLAYER' }
+  /**
+   * Path-B (async) counterpart of RUN_AI_TURN. The caller has already
+   * awaited the async engine (see src/engine/ai/asyncTurnRunner.ts) and
+   * hands the pre-computed plan to the reducer for pure application.
+   * `rngStateAfter` reflects the engine's RNG advancement — the reducer
+   * uses it to keep sync/async parity so a same-seeded match is
+   * bit-identical between the two paths.
+   */
+  | { type: 'APPLY_AI_TURN_RESULT';
+      side: Side;
+      /** import type not used here to keep GameAction free of cycles */
+      result: import('./ai/interface').AIPlannedTurnResult;
+      rngStateAfter?: unknown }
   | { type: 'TIMER_TICK'; secondsElapsed: number }
   | { type: 'CONCEDE_OR_END' }
   | { type: 'REPLAY_MATCH'; seed: number; events: GameEvent[] };
