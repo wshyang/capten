@@ -70,7 +70,7 @@ export const MCTSVisualizer: React.FC<MCTSVisualizerProps> = ({
   onTriggerAIStep,
   canTriggerAI,
 }) => {
-  const isNNMode = engineMode === 'NN_ACTIVE';
+  const isNNMode = engineMode === 'NN_ACTIVE' || engineMode === 'EPSILON_GREEDY_NN';
   const currentPosture = posture || 'BALANCED';
   const postureInfo = POSTURE_BADGES[currentPosture];
 
