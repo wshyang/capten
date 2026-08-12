@@ -66,7 +66,7 @@ export const PieceLayer: React.FC<PieceLayerProps> = ({
 
         return (
           <React.Fragment key={`planned-${planned.pieceId}`}>
-            <svg className="w-full h-full absolute inset-0 overflow-visible pointer-events-none">
+            <svg className="w-full h-full absolute inset-0 overflow-visible pointer-events-none opacity-70">
               <defs>
                 <marker
                   id={`move-arrow-${planned.pieceId}`}
@@ -94,7 +94,7 @@ export const PieceLayer: React.FC<PieceLayerProps> = ({
 
             {/* Cartoon Ghost / Shadow Piece at Destination */}
             <div
-              className="absolute pointer-events-none flex flex-col items-center justify-center animate-pulse"
+              className="absolute pointer-events-none flex flex-col items-center justify-center animate-pulse opacity-70"
               style={{
                 left: `${ghostX}px`,
                 top: `${ghostY}px`,
@@ -118,7 +118,7 @@ export const PieceLayer: React.FC<PieceLayerProps> = ({
       {/* 2. PLAYER STAGED THROW VECTOR & GOLDEN GHOST BALL */}
       {plannedThrow && carrier && (
         <React.Fragment>
-          <svg className="w-full h-full absolute inset-0 overflow-visible pointer-events-none">
+          <svg className="w-full h-full absolute inset-0 overflow-visible pointer-events-none opacity-70">
             <defs>
               <marker
                 id="planned-throw-arrowhead"
@@ -146,7 +146,7 @@ export const PieceLayer: React.FC<PieceLayerProps> = ({
 
           {/* Golden Ball Ghost Shadow at Target */}
           <div
-            className="absolute pointer-events-none flex flex-col items-center justify-center animate-bounce"
+            className="absolute pointer-events-none flex flex-col items-center justify-center animate-bounce opacity-70"
             style={{
               left: `${plannedThrow.targetCell.col * cellSizePx}px`,
               top: `${plannedThrow.targetCell.row * cellSizePx}px`,

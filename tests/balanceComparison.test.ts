@@ -12,8 +12,7 @@ import { analyzeMCTSFromStartingPosition } from '../src/engine/ai/mctsAnalysis';
 import { 
   BASELINE_CONFIG, 
   BALANCED_CONFIG_V1_V7,
-  analyzeThrowDifficulty,
-  type BalanceConfig
+  analyzeThrowDifficulty
 } from '../src/engine/balanceVariations';
 
 describe('Game Balance Comparison', () => {
@@ -164,7 +163,6 @@ describe('Game Balance Comparison', () => {
   });
 
   it('should analyze multiple throw distances', () => {
-    const state = createInitialState(42);
     
     console.log('\n=== Throw Distance Analysis ===\n');
     console.log('Comparing energy costs at different distances:\n');

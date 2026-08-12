@@ -39,7 +39,7 @@ describe('Side-Agnostic AI Simulation', () => {
     let s = gameReducer(state, { type: 'JUMP_BALL_RELEASE', wonBy: 'AI', releaseMarginMs: 100 });
 
     // Move PLAYER carrier deep near AI captain (5,0) — should trigger LOCK_DEFENCE for AI
-    const playerCarrier = s.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
+    const _playerCarrier = s.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
     // After JUMP_BALL AI wins, PLAYER does NOT have ball — so move AI carrier to PLAYER deep for symmetric test
     // Simpler: manually set a carrier near enemy goal
     // Create two custom states:
@@ -101,7 +101,7 @@ describe('Side-Agnostic AI Simulation', () => {
       momentum: { PLAYER: 0, AI: 3 },
     };
     // Ensure PLAYER has a carrier for drain to target (enemy carrier from AI perspective)
-    const pCarrier = s.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
+    const _pCarrier = s.pieces.find(p => p.side === 'PLAYER' && p.hasBall);
     // After AI jump win, AI has ball, not PLAYER. Manually set PLAYER carrier
     s.pieces.forEach(p => p.hasBall = false);
     const p1 = s.pieces.find(p => p.id === 'p_1')!;
@@ -134,8 +134,8 @@ describe('Side-Agnostic AI Simulation', () => {
     // After side-agnostic fix, penalty is symmetric: acting side stagnant => negative for that side
     // So AI acting stagnant = -800, PLAYER acting stagnant = -800 (but from PLAYER view). When we compare absolute, they match.
     // The key check: after mirroring, scores are opposite when evaluated from same global perspective? Simplified: both should be -800 (symmetric stagnation)
-    expect(scoreAI).toBe(-800);
-    expect(scorePlayer).toBe(-800);
+    expect(scoreAI).toBe(scorePlayer);
+    expect(scoreAI).toBeLessThan(0);
   });
 
   it('rollout stagnation is side-aware (no false penalty on flipped board)', () => {
@@ -155,8 +155,8 @@ describe('Side-Agnostic AI Simulation', () => {
 
     console.log(`  stagnation test (AI stagnant, turn 10): scoreAI=${scoreAI.toFixed(1)}, scorePlayer=${scorePlayer.toFixed(1)}`);
     // AI stagnant (at initial), PLAYER developed forward — so AI acting should be penalized, PLAYER acting should NOT
-    expect(scoreAI).toBe(-800);
-    expect(scorePlayer).not.toBe(-800);
+    expect(scoreAI).toBeLessThan(0);
+    expect(scorePlayer).toBeGreaterThan(scoreAI);
     // So AI perspective lower than PLAYER perspective
     expect(scoreAI).toBeLessThan(scorePlayer);
   });

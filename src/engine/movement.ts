@@ -190,7 +190,12 @@ export function getReachableCells(
     }
   }
 
-  // Sort by energy cost ascending
-  reachable.sort((a, b) => a.cost - b.cost);
+  const targetScoringCell = piece.side === 'AI' ? BOARD_CONFIG.playerScoringCell : BOARD_CONFIG.aiScoringCell;
+  reachable.sort((a, b) => {
+    if (Math.abs(a.cost - b.cost) > 0.001) return a.cost - b.cost;
+    const distA = Math.hypot(a.cell.col - targetScoringCell.col, a.cell.row - targetScoringCell.row);
+    const distB = Math.hypot(b.cell.col - targetScoringCell.col, b.cell.row - targetScoringCell.row);
+    return distA - distB;
+  });
   return reachable;
 }

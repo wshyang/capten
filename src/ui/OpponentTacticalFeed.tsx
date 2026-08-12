@@ -16,7 +16,7 @@ export const OpponentTacticalFeed: React.FC<OpponentTacticalFeedProps> = ({
 
   // Auto-scroll to bottom of feed on new events
   useEffect(() => {
-    if (feedEndRef.current) {
+    if (feedEndRef.current && typeof feedEndRef.current.scrollIntoView === 'function') {
       feedEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [state.eventLog.length]);

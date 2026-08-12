@@ -58,4 +58,27 @@ describe('Single-Ball Invariant Across All Transitions (§4)', () => {
     state.ballHolderId = 'p_1';
     assertSingleBall(state, 'Manual State Verification');
   });
+
+  it('guarantees that no two pieces can ever move to or occupy the same cell on the board', () => {
+    let state = createInitialState(999, FAST_CONFIG);
+    state = gameReducer(state, { type: 'JUMP_BALL_RELEASE', releaseMarginMs: 15, wonBy: 'PLAYER' });
+
+    const sameDest = { col: 3, row: 3 };
+    state = gameReducer(state, { type: 'STAGE_MOVE', pieceId: 'p_2', destCell: sameDest });
+    expect(state.plannedMoves.length).toBe(1);
+    expect(state.plannedMoves[0].pieceId).toBe('p_2');
+
+    state = gameReducer(state, { type: 'STAGE_MOVE', pieceId: 'p_3', destCell: sameDest });
+    expect(state.plannedMoves.length).toBe(1);
+    expect(state.plannedMoves[0].pieceId).toBe('p_2');
+
+    state = gameReducer(state, { type: 'EXECUTE_PLAYER_MOVES' });
+    const coords = new Set(state.pieces.map(p => `${p.cell.col},${p.cell.row}`));
+    expect(coords.size).toBe(state.pieces.length);
+
+    state = gameReducer(state, { type: 'RUN_AI_TURN' });
+    state = gameReducer(state, { type: 'START_PLAYER_TURN' });
+    const afterAiCoords = new Set(state.pieces.map(p => `${p.cell.col},${p.cell.row}`));
+    expect(afterAiCoords.size).toBe(state.pieces.length);
+  });
 });

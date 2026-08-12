@@ -1,0 +1,29 @@
+# .dockerignore — Exclusions for UAT & Prod Docker builds
+node_modules
+dist
+build
+coverage
+.git
+.gitignore
+.dockerignore
+Dockerfile
+
+# Exclude intermediate state and checkpoint files (only public/checkpoints/supreme_champion.json is bundled)
+checkpoints/base_*.json
+checkpoints/pop_*.json
+checkpoints/gen_*.json
+checkpoints/d4_50_progression_*.json
+checkpoints/tournament_manifest*.json
+checkpoints/goal_seeker_*
+*.tmp
+*.log
+
+# Exclude IDE and operating system files
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Exclude test cache and reports
+.vitest
+.cache

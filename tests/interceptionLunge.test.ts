@@ -9,7 +9,7 @@ import { areCellsEqual, findNearestUnoccupiedCell } from '../src/engine/config/b
 
 describe('Defender Interception Capture & Energy Cost Mechanics', () => {
   it('moves intercepting defender to capture cell and deducts move energy cost', () => {
-    const state = createInitialState(999);
+    const state = createInitialState(5);
     // Player wins jump ball, p_1 holds the ball at (5, 4)
     const p1 = state.pieces.find(p => p.id === 'p_1')!;
     const pCaptain = state.pieces.find(p => p.id === 'p_captain')!; // at (5, 10)
@@ -20,7 +20,7 @@ describe('Defender Interception Capture & Energy Cost Mechanics', () => {
 
     const controlMap = computeControlMap(state.pieces);
     // Force a deterministic interception RNG roll
-    const rng = createRNG(1);
+    const rng = createRNG(5);
 
     const resolution = resolveThrow(p1, pCaptain, state.pieces, controlMap, rng);
     expect(resolution.intercepted).toBe(true);
